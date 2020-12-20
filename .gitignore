@@ -1,3 +1,5 @@
+### Python ignores
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -127,3 +129,21 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+### Vim ignores
+
+# Swap
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+Session.vim
+Sessionx.vim
+.netrwhist
+*~
+tags
+[._]*.un~
+
+### Project specific ignores
+*.fit

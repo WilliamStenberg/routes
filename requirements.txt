@@ -1,0 +1,12 @@
+flake8
+flake8-quotes
+numpy
+pandas
+Fiona==1.6.0
+geopandas
+contextily
+matplotlib
+plotly
+scipy
+fitdecode
+mongoengine
