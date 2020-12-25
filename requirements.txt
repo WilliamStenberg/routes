@@ -2,7 +2,7 @@ flake8
 flake8-quotes
 numpy
 pandas
-Fiona==1.6.0
+Fiona
 geopandas
 contextily
 matplotlib

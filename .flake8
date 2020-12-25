@@ -2,3 +2,4 @@
 exclude = .git,__pycache__,venv
 multiline-quotes = """
 docstring-quotes = """
+ignore = F405
