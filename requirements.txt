@@ -5,8 +5,8 @@ pandas
 Fiona
 geopandas
 contextily
-matplotlib
 dash
 scipy
 fitdecode
 mongoengine
+timezonefinder[numba]
