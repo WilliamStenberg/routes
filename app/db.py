@@ -1,6 +1,9 @@
+from typing import List
+from glob import glob
 import pandas as pd
 from mongoengine import *  # noqa
 
+from parser import parse_file
 from utils import DATAPATH, file_name_validator, nonnegative_number_validator
 connect('rundb', host='127.0.0.1', port=27017)
 
@@ -40,3 +43,18 @@ def make_route(file_name: str, df: pd.DataFrame) -> Route:
                   datetime=datetime)
     route.save()
     return route
+
+
+def refresh_db() -> List[Route]:
+    """
+    Convenience function to clear DB and replace with new parsings
+    """
+    routes = []
+    dfs = []
+    Route.objects().delete()
+    for file_name in glob(DATAPATH + '*.fit'):
+        df = parse_file(file_name)
+        dfs.append(df)
+        route = make_route(file_name, df)
+        routes.append(route)
+    return routes, dfs

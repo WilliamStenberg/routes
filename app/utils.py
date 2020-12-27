@@ -5,10 +5,10 @@ DATAPATH = os.getcwd() + '/data/fitfiles/'
 
 
 def file_name_validator(file_name: str) -> None:
-    if not os.path.exists(file_name):
+    if not file_name or not os.path.exists(file_name):
         raise ValidationError(f'No such file: {file_name}')
 
 
 def nonnegative_number_validator(number: float) -> None:
-    if number <= 0:
+    if number is None or number <= 0:
         raise ValidationError(f'Must be non-negative: {number}')
