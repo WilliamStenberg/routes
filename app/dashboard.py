@@ -6,10 +6,11 @@ from dash.development.base_component import Component
 import plotly.graph_objects as go
 import pandas as pd
 from dash.dependencies import Input, Output
+from PIL import Image
 
 from db import Route
 from parser import parse_file, section_pace_infos, SectionPaceInfo
-from utils import file_name_validator, ValidationError
+from maps import transform_geodata
 
 external_stylesheets = []
 
@@ -20,7 +21,7 @@ def generate_route_dropdown(routes: List[Route],
                             multiple: bool) -> List[Component]:
     """ Route object selector, optionally allowing multiple objects """
     def make_option(route: Route) -> Dict:
-        return {'label': route.title, 'value': route.file_name}
+        return {'label': route.title, 'value': str(route.id)}
     dropdown_id = 'route-dropdown'
     if multiple:
         dropdown_id += '-multiple'
@@ -89,6 +90,46 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
     return [graph]
 
 
+def generate_route_map_figure(df: pd.DataFrame,
+                              route: Route) -> List[Component]:
+    route_map = route.map_ref
+    image_shape = (route_map.image_height, route_map.image_width)
+    xs, ys = transform_geodata(
+        df, image_shape, route_map.image_mercator_extent_dict)
+    map_hovertext = 'Speed: %{customdata[0]:.3f}m/s<br>'
+    map_hovertext += 'Distance: %{customdata[1]:.1f}'
+    scat = go.Scatter(x=xs, y=ys,
+                      mode='lines', name='Route', showlegend=True,
+                      customdata=list(zip(df['speed'], df['distance'])),
+                      hovertemplate=map_hovertext)
+
+    # TODO replace image path with FileField and load in file here
+    image = Image.open(route_map.image_path)
+    layout = go.Layout(
+        title='Geodata',
+        images=[go.layout.Image(
+            source=image,
+            xref='x',
+            yref='y',
+            x=0,
+            y=route_map.image_height,
+            sizex=route_map.image_width,
+            sizey=route_map.image_height,
+            sizing='stretch',
+            opacity=1,
+            layer='below')])
+    fig = go.Figure(data=[scat], layout=layout)
+    ratio = route_map.image_width / route_map.image_height
+    width_percent = 80
+    height_percent = width_percent / ratio
+    graph = dcc.Graph(
+        id='route-map-figure',
+        figure=fig,
+        style={'width': f'{width_percent}vw', 'height': f'{height_percent}vw'}
+    )
+    return [graph]
+
+
 app.layout = html.Div(children=[
     html.H1(children='Routes'),
 
@@ -104,11 +145,11 @@ app.layout = html.Div(children=[
     Output(component_id='graph-output', component_property='children'),
     Input(component_id='route-dropdown', component_property='value')
 )
-def update_output_div(file_name: str) -> Component:
-    try:
-        file_name_validator(file_name)
-    except ValidationError:
+def update_output_div(route_id: str) -> List[Component]:
+    if not route_id:
         return None
-    df = parse_file(file_name)
+    route = Route.objects.get(id=route_id)
+    df = parse_file(route.file_name)
     graph = generate_speed_graph(df)
-    return graph
+    map_figure = generate_route_map_figure(df, route)
+    return [*graph, *map_figure]

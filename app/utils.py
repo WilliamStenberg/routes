@@ -2,6 +2,7 @@ import os
 from mongoengine import ValidationError
 
 DATAPATH = os.getcwd() + '/data/fitfiles/'
+IMAGEPATH = os.getcwd() + '/data/maps/'
 
 
 def file_name_validator(file_name: str) -> None:
