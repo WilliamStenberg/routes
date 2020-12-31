@@ -37,14 +37,54 @@ def generate_route_dropdown(routes: List[Route],
 
 def graph_speed_lines(df: pd.DataFrame) -> go.Scatter:
     """ Line graph of speed over time for given dataframe """
-    speed_hovertext = '%{customdata[0]}<br>Distance: %{customdata[1]:.3f}km'
+    speed_hovertext = 'Distance: %{customdata[0]:.3f}km'
     speed_lines = go.Scatter(
         x=df['timestamp'], y=df['speed'],
         mode='lines', name='Speed [m/s]', showlegend=True,
-        customdata=[(t['timestamp'].strftime('%H:%M:%S'),
-                     t['distance']) for _, t in df.iterrows()],
-        hovertemplate=speed_hovertext)
-    return speed_lines
+        customdata=[(t['distance'],) for _, t in df.iterrows()],
+        hovertemplate=speed_hovertext,
+        yaxis='y'
+    )
+    yaxis_dict = dict(
+        anchor='x',
+        autorange=True,
+        domain=[0, 0.7],
+        linecolor='#673ab7',
+        mirror=True,
+        showline=True,
+        side='left',
+        tickfont={'color': '#673ab7'},
+        tickmode='auto',
+        ticks='',
+        titlefont={'color': '#673ab7'},
+        type='linear',
+        zeroline=False)
+    return speed_lines, yaxis_dict
+
+
+def graph_heartrate_lines(df: pd.DataFrame) -> go.Scatter:
+    """ Line graph of heartrate over time for given dataframe """
+    heartrate_lines = go.Scatter(
+        x=df['timestamp'], y=df['heart_rate'],
+        mode='lines', name='Heartrate [bpm]', showlegend=True,
+        yaxis='y2',
+        line=dict(color='#e91e63')
+    )
+    yaxis_dict = dict(
+        anchor='y',
+        autorange=True,
+        domain=[0.7, 1],
+        linecolor='#e91e63',
+        mirror=False,
+        showline=True,
+        side='left',
+        tickfont={'color': '#e91e63'},
+        tickmode='auto',
+        ticks='',
+        titlefont={'color': '#e91e63'},
+        type='linear',
+        zeroline=False)
+    return heartrate_lines, yaxis_dict
 
 
 def graph_pace_markers(df: pd.DataFrame, sections: List[SectionPaceInfo]
@@ -76,11 +116,30 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
     Creates a plot of speed over time with markers indicating
     average kilometer pace.
     """
-    speed_lines = graph_speed_lines(df)
+    fig = go.Figure()
+    xrange = [df['timestamp'].iloc[0], df['timestamp'].iloc[len(df) - 1]]
+    xaxis_dict = dict(
+        autorange=True,
+        range=xrange,
+        rangeslider=dict(autorange=True, range=xrange),
+        type='date')
+
+    speed_lines, speed_ydict = graph_speed_lines(df)
     sections = section_pace_infos(df, kilometer_distance_steps=1,
                                   include_total=False)
     pace_markers = graph_pace_markers(df, sections)
-    fig = go.Figure(data=[speed_lines, pace_markers])
+    fig.add_trace(speed_lines)
+    fig.add_trace(pace_markers)
+    fig.update_layout(
+        xaxis=xaxis_dict,
+        yaxis=speed_ydict,
+        hovermode='x',
+    )
+    if 'heart_rate' in df.columns:
+        heartrate_lines, heartrate_ydict = graph_heartrate_lines(df)
+        fig.add_trace(heartrate_lines)
+        fig.update_layout(yaxis2=heartrate_ydict)
+
     fig.update_xaxes(
         tickformat='%H:%M:%S')
     graph = dcc.Graph(
