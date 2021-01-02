@@ -3,10 +3,11 @@ import dash
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.development.base_component import Component
+from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 import pandas as pd
-from dash.dependencies import Input, Output
 from PIL import Image
+from datetime import datetime
 
 from db import Route
 from parser import parse_file, section_pace_infos, SectionPaceInfo
@@ -15,6 +16,10 @@ from maps import transform_geodata
 external_stylesheets = []
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+current_route_data = (None, None, None)
+current_time_function = None
+current_route = None
+current_layout = None
 
 
 def generate_route_dropdown(routes: List[Route],
@@ -149,22 +154,11 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
     return [graph]
 
 
-def generate_route_map_figure(df: pd.DataFrame,
-                              route: Route) -> List[Component]:
-    route_map = route.map_ref
-    image_shape = (route_map.image_height, route_map.image_width)
-    xs, ys = transform_geodata(
-        df, image_shape, route_map.image_mercator_extent_dict)
-    map_hovertext = 'Speed: %{customdata[0]:.3f}m/s<br>'
-    map_hovertext += 'Distance: %{customdata[1]:.1f}'
-    scat = go.Scatter(x=xs, y=ys,
-                      mode='lines', name='Route', showlegend=True,
-                      customdata=list(zip(df['speed'], df['distance'])),
-                      hovertemplate=map_hovertext)
-
+def map_layout(route_map) -> go.Layout:
     # TODO replace image path with FileField and load in file here
     image = Image.open(route_map.image_path)
     layout = go.Layout(
+        uirevision=route_map.image_path,  # Only reset zoom etc on map change
         title='Geodata',
         images=[go.layout.Image(
             source=image,
@@ -177,16 +171,48 @@ def generate_route_map_figure(df: pd.DataFrame,
             sizing='stretch',
             opacity=1,
             layer='below')])
-    fig = go.Figure(data=[scat], layout=layout)
+    return layout
+
+
+def generate_map_figure(route, layout, xs, ys, customdata):
+    route_map = route.map_ref
+    map_hovertext = 'Speed: %{customdata[0]:.3f}m/s<br>'
+    map_hovertext += 'Distance: %{customdata[1]:.1f}'
+    scat = go.Scatter(x=xs, y=ys,
+                      mode='lines', name='Route', showlegend=True,
+                      customdata=customdata,
+                      hovertemplate=map_hovertext)
+
+    fix = go.Scatter(
+        x=[0, route_map.image_width], y=[0, route_map.image_height],
+        mode='markers', marker_opacity=0, showlegend=False)
+    fig = go.Figure(data=[scat, fix], layout=layout)
     ratio = route_map.image_width / route_map.image_height
     width_percent = 80
     height_percent = width_percent / ratio
-    graph = dcc.Graph(
-        id='route-map-figure',
-        figure=fig,
-        style={'width': f'{width_percent}vw', 'height': f'{height_percent}vw'}
-    )
-    return [graph]
+    style = {'width': f'{width_percent}vw', 'height': f'{height_percent}vw'}
+    return fig, style
+
+
+def set_global_route_state(df: pd.DataFrame, route: Route) -> None:
+    global current_route, current_route_data, \
+        current_layout, current_time_function
+    route_map = route.map_ref
+    image_shape = (route_map.image_height, route_map.image_width)
+    xs, ys = transform_geodata(
+        df, image_shape, route_map.image_mercator_extent_dict)
+
+    def timestring_to_index(time_string: str) -> int:
+        ref = df['timestamp'].min()
+        try:
+            timestamp = datetime.strptime(time_string, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            timestamp = datetime.strptime(time_string, '%Y-%m-%d %H:%M:%S.%f')
+        return int((timestamp.astimezone(ref.tz) - ref).seconds)
+    current_time_function = timestring_to_index
+    current_route_data = (xs, ys, list(zip(df['speed'], df['distance'])))
+    current_layout = map_layout(route_map)
+    current_route = route
 
 
 app.layout = html.Div(children=[
@@ -196,13 +222,20 @@ app.layout = html.Div(children=[
 
     *generate_route_dropdown(Route.objects.order_by('-datetime'),
                              multiple=False),
-    html.Div(id='graph-output'),
+    html.Div(id='graph-output', children=[
+        dcc.Graph(id='speed-graph', style={'visibility': 'hidden'})
+    ]),
+    html.Div(id='map-output', children=[
+        dcc.Graph(id='route-map-figure', figure=go.Figure(),
+                  style={'visibility': 'hidden'})
+    ]),
 ])
 
 
 @app.callback(
     Output(component_id='graph-output', component_property='children'),
-    Input(component_id='route-dropdown', component_property='value')
+    Input(component_id='route-dropdown', component_property='value'),
+    prevent_initial_call=True
 )
 def update_output_div(route_id: str) -> List[Component]:
     if not route_id:
@@ -210,5 +243,36 @@ def update_output_div(route_id: str) -> List[Component]:
     route = Route.objects.get(id=route_id)
     df = parse_file(route.file_name)
     graph = generate_speed_graph(df)
-    map_figure = generate_route_map_figure(df, route)
-    return [*graph, *map_figure]
+    set_global_route_state(df, route)
+    return graph
+
+
+@app.callback(
+    [Output('route-map-figure', 'figure'),
+     Output('route-map-figure', 'style')],
+    Input('speed-graph', 'relayoutData'),
+    State('route-map-figure', 'figure'),
+    State('route-map-figure', 'style'),
+    prevent_initial_call=True)
+def boummary(relayoutData=dict(), fig=go.Figure(), style=dict()):
+    if current_layout:
+        xs, ys, customdata = current_route_data
+
+        if relayoutData and 'xaxis.autorange' in relayoutData.keys():
+            start = 0
+            stop = len(xs) - 1
+        elif relayoutData and 'xaxis.range[0]' in relayoutData.keys():
+            start = current_time_function(relayoutData['xaxis.range[0]'])
+            stop = current_time_function(relayoutData['xaxis.range[1]'])
+        elif relayoutData and 'xaxis.range' in relayoutData.keys():
+            start, stop = relayoutData['xaxis.range']
+            start = current_time_function(start)
+            stop = current_time_function(stop)
+        else:
+            return generate_map_figure(current_route, current_layout,
+                                       xs, ys, customdata)
+        if len(fig['data']) > 0:
+            fig['data'][0]['x'] = xs[start:stop]
+            fig['data'][0]['y'] = ys[start:stop]
+            fig['data'][0]['customdata'] = customdata[start:stop]
+    return fig, style
