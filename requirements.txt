@@ -8,5 +8,5 @@ contextily
 dash
 scipy
 fitdecode
-mongoengine
+sqlalchemy
 timezonefinder[numba]
