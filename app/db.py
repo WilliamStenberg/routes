@@ -1,110 +1,146 @@
-from typing import List
-from glob import glob
-import pandas as pd
-from mongoengine import *  # noqa
-import matplotlib.pyplot as plt  # Image saving
-from uuid import uuid4
+from typing import List, Optional
 
-from parser import parse_file
-from utils import DATAPATH, IMAGEPATH
-from utils import file_name_validator, nonnegative_number_validator
-from maps import padded_coordinate_bounding_box, fetch_osv_image
-connect('rundb', host='127.0.0.1', port=27017)
+from sqlalchemy import DateTime
+from sqlalchemy import ForeignKey
+from sqlalchemy import create_engine
+from sqlalchemy import select
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import Mapped
+from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+import datetime
+
+import model as model
+
+def make_engine():
+    db_engine = create_engine("sqlite://", echo=True)
+    Base.metadata.create_all(db_engine)
+    return db_engine
+
+class Base(DeclarativeBase):
+    pass
 
 
-class Map(Document):
+class Map(Base):
     """
     Map of terrain where routes are run containing image and GPS coordinates
 
     Init fetches an image from OpenStreetView and stores it along with
     bounding box coordinates.
     """
-    title = StringField(max_length=256, required=False)
-    bounding_box = PolygonField(auto_index=True, unique=True)
-    image_mercator_extent_dict = DictField(unique=True)
-    image_path = StringField(unique=True, validation=file_name_validator)
-    image_width = FloatField()
-    image_height = FloatField()
+    __tablename__ = "map"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[Optional[str]]
+    mercator_bounding_box: Mapped["MercatorBoundingBox"] = relationship(
+         back_populates="map", cascade="all, delete-orphan"
+        )
+    padded_route_bounding_box: Mapped["PaddedRouteBoundingBox"] = relationship(
+         back_populates="map", cascade="all, delete-orphan"
+        )
+
+    image_path: Mapped[str]
+    image_width: Mapped[int]
+    image_height: Mapped[int]
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    routes: Mapped[List["Route"]] = relationship(
+         back_populates="map", cascade="all, delete-orphan"
+        )
+
+def maps(sess):
+    sess.execute(select(Map)).scalars()
 
 
-class Route(Document):
+def smallest_map_enclosing(sess, box) -> Optional[Map]:
+    stmt = (
+        select(Map)
+        .join(PaddedRouteBoundingBox)
+        .where(PaddedRouteBoundingBox.west <= box.west)
+        .where(PaddedRouteBoundingBox.east >= box.east)
+        .where(PaddedRouteBoundingBox.south <= box.south)
+        .where(PaddedRouteBoundingBox.north >= box.north)
+        .order_by(
+((PaddedRouteBoundingBox.north - PaddedRouteBoundingBox.south)
+*(PaddedRouteBoundingBox.east - PaddedRouteBoundingBox.west)).desc()
+        )
+    )
+    sess.execute(stmt).scalars().first()
+
+
+class Route(Base):
     """
     Route representation with string metadata and aggregated key numbers,
     reference to file and indexed by a lat/long point.
     """
-    title = StringField(max_length=256, required=True)
-    file_name = StringField(max_length=256, required=True,
-                            validation=file_name_validator)
-    distance = FloatField(required=True,
-                          validation=nonnegative_number_validator)
-    location = PointField(auto_index=False)
-    datetime = DateTimeField()
-    map_ref = ReferenceField(Map)
+    __tablename__ = "running_route"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    file_name: Mapped[str]
+    distance: Mapped[float]
+    start_lat: Mapped[float]
+    start_long: Mapped[float]
 
-    meta = {
-        'indexes': [[('location', '2dsphere'), ('datetime', 1)]]
-    }
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    bounding_box: Mapped["RouteBoundingBox"] = relationship(
+         back_populates="route", cascade="all, delete-orphan"
+        )
+    map_id: Mapped[int] = mapped_column(ForeignKey("map.id"))
+    map: Mapped["Map"] = relationship(back_populates="routes")
 
-
-def get_map(df: pd.DataFrame) -> Map:
-    """
-    Fetches a Map object using dataframe coordinate bounding box,
-    creating it if nonexistent.
-    """
-    coord_rect = padded_coordinate_bounding_box(df)
-    polygon = coord_rect.bounding_box()
-    polygon.append(polygon[0])  # Close the polygon with starting point
-    found_maps = Map.objects(
-        bounding_box__geo_intersects=polygon)
-    if not found_maps:
-        image, extent = fetch_osv_image(coord_rect)
-        file_path = IMAGEPATH + str(uuid4()) + '.png'
-        plt.imsave(file_path, image)
-        route_map = Map(
-            bounding_box=[polygon],
-            image_mercator_extent_dict=extent.__dict__,
-            image_path=file_path,
-            image_width=image.shape[1],
-            image_height=image.shape[0])
-        route_map.save()
-    else:
-        route_map = found_maps[0]
-    return route_map
+def routes(sess) -> List[Route]:
+    stmt = select(Route).order_by(Route.created_at.desc())
+    res = sess.execute(stmt).scalars()
+    return res
 
 
-def make_route(file_name: str, df: pd.DataFrame) -> Route:
-    """
-    Parse file into dataframe and then that into a Route object.
-    Constructs the and returns it.
-    """
-    distance = df['distance'].iloc[len(df) - 1]
-    first_non_nan = df['position_lat'].first_valid_index()
-    first_row = df.iloc[first_non_nan]
-    location = [first_row['position_lat'], first_row['position_long']]
-    datetime = first_row['timestamp']
-    title = file_name.replace(DATAPATH, '').rstrip('.fit')
-    route_map = get_map(df)
-    route = Route(title=title,
-                  file_name=file_name,
-                  distance=distance,
-                  location=location,
-                  datetime=datetime,
-                  map_ref=route_map)
-    route.save()
-    return route
+class RouteBoundingBox(Base):
+    __tablename__ = "route_bounding_box"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    north: Mapped[float]
+    east: Mapped[float]
+    south: Mapped[float]
+    west: Mapped[float]
+    route_id: Mapped[int] = mapped_column(ForeignKey("running_route.id"))
+    route: Mapped["Route"] = relationship(back_populates="bounding_box", single_parent=True)
 
+    def __init__(self, box: model.BoundingBox):
+        self.north=box.north
+        self.east=box.east
+        self.south=box.south
+        self.west=box.west
 
-def refresh_db() -> List[Route]:
-    """
-    Convenience function to clear DB and replace with new parsings
-    """
-    routes = []
-    dfs = []
-    Route.objects().delete()
-    Map.objects.delete()
-    for file_name in glob(DATAPATH + '*.fit'):
-        df = parse_file(file_name)
-        dfs.append(df)
-        route = make_route(file_name, df)
-        routes.append(route)
-    return routes, dfs
+    def bounding_box(self) -> model.BoundingBox:
+        return model.BoundingBox(north=self.north, east=self.east, south=self.south, west=self.west)
+
+class PaddedRouteBoundingBox(Base):
+    __tablename__ = "padded_route_bounding_box"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    north: Mapped[float]
+    east: Mapped[float]
+    south: Mapped[float]
+    west: Mapped[float]
+    map_id: Mapped[int] = mapped_column(ForeignKey("map.id"))
+    map: Mapped["Map"] = relationship(back_populates="padded_route_bounding_box", single_parent=True)
+
+    def __init__(self, box: model.BoundingBox):
+        self.north=box.north
+        self.east=box.east
+        self.south=box.south
+        self.west=box.west
+
+    def bounding_box(self) -> model.BoundingBox:
+        return model.BoundingBox(north=self.north, east=self.east, south=self.south, west=self.west)
+
+class MercatorBoundingBox(Base):
+    __tablename__ = "mercator_bounding_box"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    north: Mapped[float]
+    east: Mapped[float]
+    south: Mapped[float]
+    west: Mapped[float]
+    map_id: Mapped[int] = mapped_column(ForeignKey("map.id"))
+    map: Mapped["Map"] = relationship(back_populates="mercator_bounding_box", single_parent=True)
