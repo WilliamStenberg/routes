@@ -246,7 +246,7 @@ def map_layout(route_map) -> go.Layout:
 
 
 def generate_map_figure(route, layout, xs, ys, customdata):
-    route_map = route.map_ref
+    route_map = route.map
     map_hovertext = 'Speed: %{customdata[0]:.3f}m/s<br>'
     map_hovertext += 'Distance: %{customdata[1]:.1f}'
     scat = go.Scatter(x=xs, y=ys,
@@ -271,7 +271,7 @@ def set_global_route_state(df: pd.DataFrame, route: db.Route) -> None:
     route_map = route.map
     image_shape = (route_map.image_height, route_map.image_width)
     xs, ys = transform_geodata(
-        df, image_shape, {})  # TODO: Replace empty dict with mercator extent
+        df, image_shape, route.map.mercator_bounding_box)
 
     def timestring_to_index(time_string: str) -> int:
         ref = df['timestamp'].min()

@@ -54,18 +54,18 @@ def fetch_osv_image(box: model.BoundingBox
     return im, db.MercatorBoundingBox(west=min_x, south=min_y, east=max_x, north=max_y)
 
 
-def transform_geodata(df: pd.DataFrame, image_shape: Tuple[float, float],
-                      extent_dict: Dict) -> Tuple[List, List]:
+def transform_geodata(df: pd.DataFrame, image_shape: Tuple[int, int],
+                      mercator_box: db.MercatorBoundingBox) -> Tuple[List, List]:
     """
     Compute x and y lists of route geodata in origin-based reference frame
 
     Given a dataframe with image shape and mercator bounding box,
     converts lat/long to WebMercator and scales and translates.
     """
-    max_x = extent_dict['east']
-    min_x = extent_dict['west']
-    min_y = extent_dict['south']
-    max_y = extent_dict['north']
+    max_x = mercator_box.east
+    min_x = mercator_box.west
+    min_y = mercator_box.south
+    max_y = mercator_box.north
     scale_factor_x = image_shape[1] / (max_x - min_x)
     scale_factor_y = image_shape[0] / (max_y - min_y)
 
