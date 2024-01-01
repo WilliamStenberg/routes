@@ -1,54 +1,43 @@
 from typing import List, Tuple, Dict
-import pandas as pd
-import geopandas as gpd
-import numpy as np
+from uuid import uuid4
 import contextily as ctx
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+import db as db
+import model as model
+import utils as utils
 
 
-class CoordinateRectangle:
+
+def get_map(sess, ts: model.Timeseries) -> db.Map:
     """
-    Four coordinates specifying a rectangle. Should be interpreted as lat/long
-    coordinates unless mercator property is explicitly set to True
-
-    Can be accessed by west-south-east-north properties or as
-    a list of four coordinates (southwest, ...)
+    Fetches a Map object using dataframe coordinate bounding box,
+    creating it if nonexistent.
     """
-    def __init__(self, west: float, south: float, east: float, north: float,
-                 mercator: bool = False):
-        self.west = west
-        self.south = south
-        self.east = east
-        self.north = north
-        self.mercator = mercator
-
-    def bounding_box(self) -> List[Tuple[float, float]]:
-        """
-        Pair up coordinates to four corners in a bounding box
-
-        Returns coordinates (in either representation) for
-        southwest, southeast, northeast, and northwest corners.
-        """
-        return [[self.west, self.south], [self.east, self.south],
-                [self.east, self.north], [self.west, self.north]]
-
-
-def padded_coordinate_bounding_box(df: pd.DataFrame) -> CoordinateRectangle:
-    """
-    Extract dataframe GPS west-south-east-north route mins/max,
-    add margins and return the four values
-    """
-    assert 'position_lat' in df.columns and 'position_long' in df.columns
-    lat_diff, long_diff = 0.0005, 0.001  # Add ~50m off each limit
-    num_margin = 2
-    west = df['position_long'].min() - long_diff * num_margin
-    south = df['position_lat'].min() - lat_diff * num_margin
-    east = df['position_long'].max() + long_diff * num_margin
-    north = df['position_lat'].max() + lat_diff * num_margin
-    return CoordinateRectangle(west, south, east, north)
+    coord_rect = ts.padded_rect()
+    found_map = db.smallest_map_enclosing(sess, coord_rect)
+    if not found_map:
+        image, extent = fetch_osv_image(coord_rect)
+        file_path = utils.IMAGEPATH + str(uuid4()) + '.png'
+        plt.imsave(file_path, image)
+        route_map = db.Map(
+            padded_route_bounding_box = db.PaddedRouteBoundingBox(coord_rect),
+            mercator_bounding_box = extent,
+            image_path=file_path,
+            image_width=image.shape[1],
+            image_height=image.shape[0],
+        )
+    else:
+        route_map = found_map
+    return route_map
 
 
-def fetch_osv_image(box: CoordinateRectangle
-                    ) -> Tuple[np.ndarray, CoordinateRectangle]:
+
+def fetch_osv_image(box: model.BoundingBox
+                    ) -> Tuple[np.ndarray, db.MercatorBoundingBox]:
     """
     Get satellite image from OpenStreetView as Numpy array for given lat/long
     coordinate rectangle (bounding box)
@@ -56,13 +45,13 @@ def fetch_osv_image(box: CoordinateRectangle
     Includes the image's extent (image corners) as a new coordinate rectangle
     in WebMercator projection.
     """
-    assert not box.mercator
+    osv_source = ctx.providers.OpenStreetMap.Mapnik # type: ignore
     im, extent = ctx.bounds2img(box.west, box.south, box.east, box.north,
                                 ll=True,
-                                source=ctx.providers.OpenStreetMap.Mapnik)
+                                source=osv_source)
     # Extent is given in another order
     [min_x, max_x, min_y, max_y] = extent
-    return im, CoordinateRectangle(min_x, min_y, max_x, max_y, mercator=True)
+    return im, db.MercatorBoundingBox(west=min_x, south=min_y, east=max_x, north=max_y)
 
 
 def transform_geodata(df: pd.DataFrame, image_shape: Tuple[float, float],
@@ -84,6 +73,8 @@ def transform_geodata(df: pd.DataFrame, image_shape: Tuple[float, float],
         df, geometry=gpd.points_from_xy(df.position_long, df.position_lat))
     gdf = raw_gdf.set_crs(4327)  # Coordinates are in lat/long WGS format
     gdf = gdf.to_crs('epsg:3857')  # Transform the geometry to WebMercator
-    xs = (gdf.geometry.x - min_x) * scale_factor_x
-    ys = (gdf.geometry.y - min_y) * scale_factor_y
-    return xs, ys
+    if gdf is not None and gdf.geometry is not None:
+        xs = (gdf.geometry.x - min_x) * scale_factor_x
+        ys = (gdf.geometry.y - min_y) * scale_factor_y
+        return xs, ys
+    return [], []

@@ -75,12 +75,12 @@ def parse_file(file_name: str) -> pd.DataFrame:
         for frame in fit:
             if isinstance(frame, fd.FitDefinitionMessage):
                 if frame.name == 'record':
-                    fit.processor.columns = [
+                    fit.processor.columns = [ # type: ignore
                         field_def.name for field_def in frame.all_field_defs
                     ]
             elif isinstance(frame, fd.FitDataMessage):
                 pass
-        return fit.processor.get_dataframe()
+        return fit.processor.get_dataframe()  # type: ignore
 
 
 class SectionPaceInfo:
@@ -133,7 +133,7 @@ def section_pace_infos(df, kilometer_distance_steps: float = 1,
         delta_dist, delta_time = new_dist - ref_dist, new_time - ref_time
         speed = (delta_dist) / (delta_time).seconds
         # Convert to seconds / km as timedelta
-        speed = timedelta(seconds=1 / speed) if speed > 0 else np.nan
+        speed = timedelta(seconds=1 / speed) if speed > 0 else timedelta(seconds=0)
         objects.append(SectionPaceInfo(
             delta_dist, delta_time, speed, ref_index, ref_index + delta_index))
         ref_time = new_time
