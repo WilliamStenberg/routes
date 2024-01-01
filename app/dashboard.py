@@ -8,8 +8,6 @@ import plotly.graph_objects as go
 import pandas as pd
 from PIL import Image
 from datetime import datetime
-from sqlalchemy.orm import Session
-
 
 import db as db
 from parser import parse_file, section_pace_infos, SectionPaceInfo
@@ -22,10 +20,9 @@ current_route = None
 current_layout = None
 
 class Model:
-    def __init__(self, db_engine):
-        self.db_engine = db_engine
+    def __init__(self):
         self.app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
-        with Session(self.db_engine) as sess:
+        with db.sess() as sess:
             self.routes: List[db.Route] = db.routes(sess)
             self.maps = db.maps(sess)
             self.set_layout()
@@ -36,12 +33,13 @@ class Model:
             prevent_initial_call=True
         )
         def update_output_div(route_id: str) -> Optional[List[Component]]:
-            with Session(self.db_engine) as sess:
+            with db.sess() as sess2:
+                routes: List[db.Route] = db.routes(sess2)
                 if (route := sess.get(db.Route, route_id)) is not None:
-                   df = parse_file(route.file_name)
-                   graph = generate_speed_graph(df)
-                   set_global_route_state(df, route)
-                   return graph
+                    df = parse_file(route.file_name)
+                    graph = generate_speed_graph(df)
+                    set_global_route_state(df, route)
+                    return graph
 
 
         @self.app.callback(
@@ -83,7 +81,6 @@ class Model:
             html.H1(children='Routes'),
 
             html.Div(children='Interactive running statistics'),
-
             *generate_route_dropdown(self.routes,
                                      multiple=False),
             html.Div(id='graph-output', children=[

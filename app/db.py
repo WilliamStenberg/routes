@@ -1,5 +1,8 @@
 from typing import List, Optional
 
+import datetime
+import os
+
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
 from sqlalchemy import create_engine
@@ -8,15 +11,21 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 from sqlalchemy.sql import func
-import datetime
 
 import model as model
+def engine():
+    path = f'{os.getcwd()}/data/database.db'
+    return create_engine(f'sqlite:///{path}', echo=True, poolclass=NullPool)
 
-def make_engine():
-    db_engine = create_engine("sqlite://", echo=True)
+def setup():
+    db_engine = engine()
     Base.metadata.create_all(db_engine)
-    return db_engine
+
+def sess():
+    return Session( engine())
 
 class Base(DeclarativeBase):
     pass
@@ -94,7 +103,7 @@ class Route(Base):
 def routes(sess) -> List[Route]:
     stmt = select(Route).order_by(Route.created_at.desc())
     res = sess.execute(stmt).scalars()
-    return res
+    return list(res)
 
 
 class RouteBoundingBox(Base):

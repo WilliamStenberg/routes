@@ -35,20 +35,17 @@ def make_route(sess, file_name: str, df: pd.DataFrame) -> db.Route:
 
 
 def refresh_db() -> List[db.Route]:
-    return sync(db.make_engine(), clear=True)
+    return sync(clear=True)
 
-def sync(engine, clear: bool = False) -> List[db.Route]:
-    with Session(engine) as sess:
+def sync(clear: bool = False) -> List[db.Route]:
+    with db.sess() as sess:
         if clear:
             sess.execute(delete(db.Route))
         routes = []
         dfs = []
         existing = [r.file_name for r in db.routes(sess)]
-        print(existing)
         for file_name in glob(utils.DATAPATH + '*.fit'):
-            print(file_name)
             if file_name not in existing:
-                print("inserting!")
                 df = parser.parse_file(file_name)
                 dfs.append(df)
                 route = make_route(sess, file_name, df)
