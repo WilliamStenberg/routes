@@ -1,5 +1,4 @@
-from typing import List, Tuple, Dict
-from uuid import uuid4
+from typing import List, Tuple
 import contextily as ctx
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -17,14 +16,14 @@ def get_map(sess, ts: model.Timeseries) -> db.Map:
     Fetches a Map object using dataframe coordinate bounding box,
     creating it if nonexistent.
     """
-    coord_rect = ts.padded_rect()
-    found_map = db.smallest_map_enclosing(sess, coord_rect)
+    padded_rect = ts.padded_rect()
+    found_map = db.smallest_map_enclosing(sess, ts.bounding_rect())
     if not found_map:
-        image, extent = fetch_osv_image(coord_rect)
-        file_path = utils.IMAGEPATH + str(uuid4()) + '.png'
+        image, extent = fetch_osv_image(padded_rect)
+        file_path = utils.IMAGEPATH + str(padded_rect) + '.png'
         plt.imsave(file_path, image)
         route_map = db.Map(
-            padded_route_bounding_box = db.PaddedRouteBoundingBox(coord_rect),
+            padded_route_bounding_box = db.PaddedRouteBoundingBox(padded_rect),
             mercator_bounding_box = extent,
             image_path=file_path,
             image_width=image.shape[1],

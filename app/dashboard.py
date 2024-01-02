@@ -66,11 +66,10 @@ class Model:
                 else:
                     return generate_map_figure(current_route, current_layout,
                                                xs, ys, customdata)
-                # TODO Fix this logic
-                # if len(fig['data']) > 0:
-                #     fig['data'][0]['x'] = xs[start:stop]
-                #     fig['data'][0]['y'] = ys[start:stop]
-                #     fig['data'][0]['customdata'] = customdata[start:stop]
+                if len(fig['data']) > 0:  # type: ignore
+                    fig['data'][0]['x'] = xs[start:stop]  # type: ignore
+                    fig['data'][0]['y'] = ys[start:stop]  # type: ignore
+                    fig['data'][0]['customdata'] = customdata[start:stop]  # type: ignore
             return fig, style
 
     def run_server(self):

@@ -72,10 +72,10 @@ def smallest_map_enclosing(sess, box) -> Optional[Map]:
         .where(PaddedRouteBoundingBox.north >= box.north)
         .order_by(
 ((PaddedRouteBoundingBox.north - PaddedRouteBoundingBox.south)
-*(PaddedRouteBoundingBox.east - PaddedRouteBoundingBox.west)).desc()
+*(PaddedRouteBoundingBox.east - PaddedRouteBoundingBox.west))
         )
     )
-    sess.execute(stmt).scalars().first()
+    return sess.execute(stmt).scalars().first()
 
 
 class Route(Base):
