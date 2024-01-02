@@ -1,11 +1,10 @@
 from typing import List
+import os
 from glob import glob
 import pandas as pd
 from sqlalchemy import delete
-from sqlalchemy.orm import Session
 
 import db as db
-import maps as maps
 import model as model
 import parser as parser
 import utils as utils
@@ -21,7 +20,7 @@ def make_route(sess, file_name: str, df: pd.DataFrame) -> db.Route:
     location = [first_row['position_lat'], first_row['position_long']]
     datetime = first_row['timestamp']
     title = file_name.replace(utils.DATAPATH, '').rstrip('.fit')
-    route_map = maps.get_map(sess, model.Timeseries(df))
+    route_map, _ = db.ensure_persistent_map(sess, model.Timeseries(df))
     sess.add(route_map)
     route = db.Route(title=title,
                   file_name=file_name,
@@ -35,20 +34,24 @@ def make_route(sess, file_name: str, df: pd.DataFrame) -> db.Route:
 
 
 def refresh_db() -> List[db.Route]:
-    return sync(db.make_engine(), clear=True)
+    return sync(clear=True)
 
-def sync(engine, clear: bool = False) -> List[db.Route]:
-    with Session(engine) as sess:
+def clear_maps():
+    with db.sess() as sess:
+        sess.execute(delete(db.Map))
+        sess.commit()
+        for file_name in glob(utils.IMAGEPATH + '*.png'):
+            os.remove(file_name)
+
+def sync(clear: bool = False) -> List[db.Route]:
+    with db.sess() as sess:
         if clear:
             sess.execute(delete(db.Route))
         routes = []
         dfs = []
         existing = [r.file_name for r in db.routes(sess)]
-        print(existing)
         for file_name in glob(utils.DATAPATH + '*.fit'):
-            print(file_name)
             if file_name not in existing:
-                print("inserting!")
                 df = parser.parse_file(file_name)
                 dfs.append(df)
                 route = make_route(sess, file_name, df)

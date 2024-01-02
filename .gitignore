@@ -147,4 +147,4 @@ tags
 
 ### Project specific ignores
 *.fit
-data/maps/*
+data/
