@@ -1,42 +1,27 @@
 from typing import List, Tuple
 import contextily as ctx
 import geopandas as gpd
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-import db as db
 import model as model
 import utils as utils
+from PIL import Image
 
 
 
-def get_map(sess, ts: model.Timeseries) -> db.Map:
+def transient_map(box: model.BoundingBox) -> model.Map:
     """
     Fetches a Map object using dataframe coordinate bounding box,
     creating it if nonexistent.
     """
-    padded_rect = ts.padded_rect()
-    found_map = db.smallest_map_enclosing(sess, ts.bounding_rect())
-    if not found_map:
-        image, extent = fetch_osv_image(padded_rect)
-        file_path = utils.IMAGEPATH + str(padded_rect) + '.png'
-        plt.imsave(file_path, image)
-        route_map = db.Map(
-            padded_route_bounding_box = db.PaddedRouteBoundingBox(padded_rect),
-            mercator_bounding_box = extent,
-            image_path=file_path,
-            image_width=image.shape[1],
-            image_height=image.shape[0],
-        )
-    else:
-        route_map = found_map
-    return route_map
-
+    ndarray, extent = fetch_osv_image(box)
+    im = Image.fromarray(ndarray)
+    return model.Map(image=im, mercator_box=extent)
 
 
 def fetch_osv_image(box: model.BoundingBox
-                    ) -> Tuple[np.ndarray, db.MercatorBoundingBox]:
+                    ) -> Tuple[np.ndarray, model.BoundingBox]:
     """
     Get satellite image from OpenStreetView as Numpy array for given lat/long
     coordinate rectangle (bounding box)
@@ -50,11 +35,11 @@ def fetch_osv_image(box: model.BoundingBox
                                 source=osv_source)
     # Extent is given in another order
     [min_x, max_x, min_y, max_y] = extent
-    return im, db.MercatorBoundingBox(west=min_x, south=min_y, east=max_x, north=max_y)
+    return im, model.BoundingBox(west=min_x, south=min_y, east=max_x, north=max_y)
 
 
 def transform_geodata(df: pd.DataFrame, image_shape: Tuple[int, int],
-                      mercator_box: db.MercatorBoundingBox) -> Tuple[List, List]:
+                      mercator_box: model.BoundingBox) -> Tuple[List, List]:
     """
     Compute x and y lists of route geodata in origin-based reference frame
 

@@ -10,8 +10,8 @@ from PIL import Image
 from datetime import datetime
 
 import db as db
-from parser import parse_file, section_pace_infos, SectionPaceInfo
-from maps import transform_geodata
+import parser as parser
+import maps as maps
 
 external_stylesheets = []
 current_route_data = ([], [], None)
@@ -24,7 +24,6 @@ class Model:
         self.app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
         with db.sess() as sess:
             self.routes: List[db.Route] = db.routes(sess)
-            self.maps = db.maps(sess)
             self.set_layout()
 
         @self.app.callback(
@@ -33,10 +32,9 @@ class Model:
             prevent_initial_call=True
         )
         def update_output_div(route_id: str) -> Optional[List[Component]]:
-            with db.sess() as sess2:
-                routes: List[db.Route] = db.routes(sess2)
+            with db.sess() as sess:
                 if (route := sess.get(db.Route, route_id)) is not None:
-                    df = parse_file(route.file_name)
+                    df = parser.parse_file(route.file_name)
                     graph = generate_speed_graph(df)
                     set_global_route_state(df, route)
                     return graph
@@ -45,6 +43,20 @@ class Model:
         @self.app.callback(
             [Output('route-map-figure', 'figure'),
              Output('route-map-figure', 'style')],
+            Input('route-map-figure', 'relayoutData'),
+            State('route-map-figure', 'figure'),
+            State('route-map-figure', 'style'),
+            prevent_initial_call=True)
+        def update_map_if_zoomed(relayoutData=dict(), fig=go.Figure(), style=dict()):
+            if current_layout:
+                # TODO: If the current view is zoomed in more than x % of the current background image,
+                # then load a transient image based on the coordinates
+                pass
+            return fig, style
+
+        @self.app.callback(
+            [Output('route-map-figure', 'figure', allow_duplicate=True),
+             Output('route-map-figure', 'style', allow_duplicate=True)],
             Input('speed-graph', 'relayoutData'),
             State('route-map-figure', 'figure'),
             State('route-map-figure', 'style'),
@@ -162,7 +174,7 @@ def graph_heartrate_lines(df: pd.DataFrame):
     return heartrate_lines, yaxis_dict
 
 
-def graph_pace_markers(df: pd.DataFrame, sections: List[SectionPaceInfo]
+def graph_pace_markers(df: pd.DataFrame, sections: List[parser.SectionPaceInfo]
                        ) -> go.Scatter:
     """ Scatter graph of pace markers for given dataframe and sections list """
     distances: List[float] = [0]  # Accumulated distance at each marker
@@ -200,7 +212,7 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
         type='date')
 
     speed_lines, speed_ydict = graph_speed_lines(df)
-    sections = section_pace_infos(df, kilometer_distance_steps=1,
+    sections = parser.section_pace_infos(df, kilometer_distance_steps=1,
                                   include_total=False)
     pace_markers = graph_pace_markers(df, sections)
     fig.add_trace(speed_lines)
@@ -269,8 +281,8 @@ def set_global_route_state(df: pd.DataFrame, route: db.Route) -> None:
         current_layout, current_time_function
     route_map = route.map
     image_shape = (route_map.image_height, route_map.image_width)
-    xs, ys = transform_geodata(
-        df, image_shape, route.map.mercator_bounding_box)
+    xs, ys = maps.transform_geodata(
+        df, image_shape, route.map.mercator_bounding_box.bounding_box())
 
     def timestring_to_index(time_string: str) -> int:
         ref = df['timestamp'].min()

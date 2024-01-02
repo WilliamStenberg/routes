@@ -1,7 +1,8 @@
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import datetime
 import os
+from PIL import Image
 
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
@@ -12,13 +13,15 @@ from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Session
-from sqlalchemy.pool import NullPool
 from sqlalchemy.sql import func
 
 import model as model
+import maps as maps
+import utils as utils
+
 def engine():
     path = f'{os.getcwd()}/data/database.db'
-    return create_engine(f'sqlite:///{path}', echo=True, poolclass=NullPool)
+    return create_engine(f'sqlite:///{path}', echo=True)
 
 def setup():
     db_engine = engine()
@@ -58,8 +61,30 @@ class Map(Base):
          back_populates="map", cascade="all, delete-orphan"
         )
 
-def maps(sess):
-    sess.execute(select(Map)).scalars()
+def persistent_map(sess, ts: model.Timeseries) -> Tuple[Map, Image.Image]:
+    tight_box = ts.bounding_box()
+    padded_rect = tight_box.padded_rect()
+    found_map = smallest_map_enclosing(sess, tight_box)
+    twice_padded = padded_rect.padded_rect()
+    # create a new map if we
+    # a) didn't find a map enclosing the tight box, or
+    # b) found a too large map, meaning that twice_padded does not contain the found_map's padded box
+    if found_map is None or not twice_padded.contains(found_map.padded_route_bounding_box.bounding_box()):
+        file_path = utils.IMAGEPATH + str(padded_rect) + '.png'
+        m = maps.transient_map(padded_rect)
+        m.image.save(file_path)
+        new_map = Map(
+            padded_route_bounding_box = PaddedRouteBoundingBox(padded_rect),
+            mercator_bounding_box = MercatorBoundingBox(m.mercator_box),
+            image_path=file_path,
+            image_width=m.image.width,
+            image_height=m.image.height
+            )
+        sess.add(new_map)
+        return new_map, m.image
+    else:
+        im = Image.open(found_map.image_path)
+        return found_map, im
 
 
 def smallest_map_enclosing(sess, box) -> Optional[Map]:
@@ -153,3 +178,12 @@ class MercatorBoundingBox(Base):
     west: Mapped[float]
     map_id: Mapped[int] = mapped_column(ForeignKey("map.id"))
     map: Mapped["Map"] = relationship(back_populates="mercator_bounding_box", single_parent=True)
+
+    def __init__(self, box: model.BoundingBox):
+        self.north=box.north
+        self.east=box.east
+        self.south=box.south
+        self.west=box.west
+
+    def bounding_box(self) -> model.BoundingBox:
+        return model.BoundingBox(north=self.north, east=self.east, south=self.south, west=self.west)
