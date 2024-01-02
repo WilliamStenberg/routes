@@ -61,7 +61,7 @@ class Map(Base):
          back_populates="map", cascade="all, delete-orphan"
         )
 
-def persistent_map(sess, ts: model.Timeseries) -> Tuple[Map, Image.Image]:
+def ensure_persistent_map(sess, ts: model.Timeseries) -> Tuple[Map, model.Map]:
     tight_box = ts.bounding_box()
     padded_rect = tight_box.padded_rect()
     found_map = smallest_map_enclosing(sess, tight_box)
@@ -81,10 +81,12 @@ def persistent_map(sess, ts: model.Timeseries) -> Tuple[Map, Image.Image]:
             image_height=m.image.height
             )
         sess.add(new_map)
-        return new_map, m.image
+        return new_map, m
     else:
-        im = Image.open(found_map.image_path)
-        return found_map, im
+        return found_map, model.Map(
+            box=found_map.padded_route_bounding_box.bounding_box(),
+            mercator_box=found_map.mercator_bounding_box.box(),
+            image=Image.open(found_map.image_path))
 
 
 def smallest_map_enclosing(sess, box) -> Optional[Map]:
@@ -179,11 +181,11 @@ class MercatorBoundingBox(Base):
     map_id: Mapped[int] = mapped_column(ForeignKey("map.id"))
     map: Mapped["Map"] = relationship(back_populates="mercator_bounding_box", single_parent=True)
 
-    def __init__(self, box: model.BoundingBox):
+    def __init__(self, box: model.MercatorBox):
         self.north=box.north
         self.east=box.east
         self.south=box.south
         self.west=box.west
 
-    def bounding_box(self) -> model.BoundingBox:
-        return model.BoundingBox(north=self.north, east=self.east, south=self.south, west=self.west)
+    def box(self) -> model.MercatorBox:
+        return model.MercatorBox(north=self.north, east=self.east, south=self.south, west=self.west)

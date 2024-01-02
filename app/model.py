@@ -1,4 +1,3 @@
-from typing import List
 import pandas as pd
 from dataclasses import dataclass
 from PIL import Image
@@ -39,8 +38,19 @@ class BoundingBox:
     def contains(self, other: "BoundingBox") -> bool:
         return self.north >= other.north and self.east >= other.east and self.south <= other.south and self.west <= other.west
 
+@dataclass
+class MercatorBox:
+    north: float
+    east: float
+    south: float
+    west: float
+
+    def __str__(self):
+        return f'mercatorbox-{self.north}-{self.east}-{self.south}-{self.west}'
+
 
 @dataclass
 class Map:
-    mercator_box: BoundingBox
+    box: BoundingBox
+    mercator_box: MercatorBox
     image: Image.Image

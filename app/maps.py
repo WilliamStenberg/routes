@@ -9,7 +9,6 @@ import utils as utils
 from PIL import Image
 
 
-
 def transient_map(box: model.BoundingBox) -> model.Map:
     """
     Fetches a Map object using dataframe coordinate bounding box,
@@ -17,11 +16,11 @@ def transient_map(box: model.BoundingBox) -> model.Map:
     """
     ndarray, extent = fetch_osv_image(box)
     im = Image.fromarray(ndarray)
-    return model.Map(image=im, mercator_box=extent)
+    return model.Map(image=im, box=box, mercator_box=extent)
 
 
 def fetch_osv_image(box: model.BoundingBox
-                    ) -> Tuple[np.ndarray, model.BoundingBox]:
+                    ) -> Tuple[np.ndarray, model.MercatorBox]:
     """
     Get satellite image from OpenStreetView as Numpy array for given lat/long
     coordinate rectangle (bounding box)
@@ -35,23 +34,23 @@ def fetch_osv_image(box: model.BoundingBox
                                 source=osv_source)
     # Extent is given in another order
     [min_x, max_x, min_y, max_y] = extent
-    return im, model.BoundingBox(west=min_x, south=min_y, east=max_x, north=max_y)
+    return im, model.MercatorBox(west=min_x, south=min_y, east=max_x, north=max_y)
 
 
-def transform_geodata(df: pd.DataFrame, image_shape: Tuple[int, int],
-                      mercator_box: model.BoundingBox) -> Tuple[List, List]:
+def transform_geodata(df: pd.DataFrame, map: model.Map) -> Tuple[List, List]:
     """
     Compute x and y lists of route geodata in origin-based reference frame
 
     Given a dataframe with image shape and mercator bounding box,
     converts lat/long to WebMercator and scales and translates.
     """
-    max_x = mercator_box.east
-    min_x = mercator_box.west
-    min_y = mercator_box.south
-    max_y = mercator_box.north
-    scale_factor_x = image_shape[1] / (max_x - min_x)
-    scale_factor_y = image_shape[0] / (max_y - min_y)
+
+    max_x = map.mercator_box.east
+    min_x = map.mercator_box.west
+    min_y = map.mercator_box.south
+    max_y = map.mercator_box.north
+    scale_factor_x = map.image.width / (max_x - min_x)
+    scale_factor_y = map.image.height / (max_y - min_y)
 
     raw_gdf = gpd.GeoDataFrame(
         df, geometry=gpd.points_from_xy(df.position_long, df.position_lat))
