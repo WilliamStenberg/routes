@@ -7,6 +7,8 @@ from timezonefinder import TimezoneFinder
 from dateutil import tz
 from datetime import timedelta
 
+import model as model
+
 
 class RouteProcessor(fd.StandardUnitsDataProcessor):
 
@@ -100,12 +102,7 @@ class SectionPaceInfo:
         self.end_index = end_index
 
     def formatted_pace(self) -> str:
-        duration = self.duration
-        if duration.seconds < 60:
-            return f'{duration.seconds:02}s'
-        elif duration.seconds % 60 == 0:
-            return f'{duration.seconds // 60}min'
-        return f'{duration.seconds//60}min, {(duration.seconds % 60):02}s'
+        return model.f(self.duration)
 
 
 def section_pace_infos(df, kilometer_distance_steps: float = 1,
@@ -131,11 +128,9 @@ def section_pace_infos(df, kilometer_distance_steps: float = 1,
         new_time, new_dist = df.loc[next_index][['timestamp', 'distance']]
         # Average speed in km/s
         delta_dist, delta_time = new_dist - ref_dist, new_time - ref_time
-        speed = (delta_dist) / (delta_time).seconds
-        # Convert to seconds / km as timedelta
-        speed = timedelta(seconds=1 / speed) if speed > 0 else timedelta(seconds=0)
+        pace = model.calculate_pace(delta_dist, delta_time)
         objects.append(SectionPaceInfo(
-            delta_dist, delta_time, speed, ref_index, ref_index + delta_index))
+            delta_dist, delta_time, pace, ref_index, ref_index + delta_index))
         ref_time = new_time
         ref_dist = new_dist
         ref_index = ref_index + delta_index
@@ -145,3 +140,4 @@ def section_pace_infos(df, kilometer_distance_steps: float = 1,
         objects += section_pace_infos(df, np.iinfo(np.int64).max,
                                       include_total=False)
     return objects
+

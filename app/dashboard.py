@@ -72,7 +72,7 @@ class Model:
         self.map = map
         xs, ys = maps.transform_geodata(
             self.df, map)
-        self.route_data = RouteData(xs=xs, ys=ys, labels=list(zip(self.df['speed'], self.df['distance'])))
+        self.route_data = RouteData(xs=xs, ys=ys, labels=list(zip(self.df['speed'].apply(lambda s: model.f(model.moment_pace(s))), self.df['distance'])))
         self.layout = map_layout(map)
         fig, style = self.map_figure()
         return fig, style
@@ -168,7 +168,7 @@ def generate_route_dropdown(routes: List[db.Route],
     ]
 
 def map_route(route_data_in_view: RouteData, map: model.Map, layout):
-    map_hovertext = 'Speed: %{customdata[0]:.3f}m/s<br>'
+    map_hovertext = 'Pace: %{customdata[0]}<br>'
     map_hovertext += 'Distance: %{customdata[1]:.1f}'
     scat = go.Scatter(x=route_data_in_view.xs, y=route_data_in_view.ys,
                       mode='lines', name='Route', showlegend=True,
@@ -185,12 +185,15 @@ def map_route(route_data_in_view: RouteData, map: model.Map, layout):
 
 def graph_speed_lines(df: pd.DataFrame):
     """ Line graph of speed over time for given dataframe """
-    speed_hovertext = 'Distance: %{customdata[0]:.3f}km'
+    pace_hovertext = 'Pace: %{customdata[1]} per km<br>'
+    pace_hovertext += 'Distance: %{customdata[0]:.1f} km'
+    pace = df['speed'].apply(model.moment_pace)
+    pace_as_float = pace.apply(lambda t: t.seconds/60)
     speed_lines = go.Scatter(
-        x=df['timestamp'], y=df['speed'],
-        mode='lines', name='Speed [m/s]', showlegend=True,
-        customdata=[(t['distance'],) for _, t in df.iterrows()],
-        hovertemplate=speed_hovertext,
+        x=df['timestamp'], y=pace_as_float,
+        mode='lines', name='Pace [min/km]', showlegend=True,
+        customdata=[(t['distance'],model.f(p)) for (_, t), p in zip(df.iterrows(), pace)],
+        hovertemplate=pace_hovertext,
         yaxis='y'
     )
     yaxis_dict = dict(
@@ -249,7 +252,7 @@ def graph_pace_markers(df: pd.DataFrame, sections: List[parser.SectionPaceInfo]
     pace_markers = go.Scatter(
         x=[df.loc[pace_info.end_index, 'timestamp']
            for pace_info in sections],
-        y=[df.loc[pace_info.end_index, 'speed']
+        y=[model.moment_pace(df.loc[pace_info.end_index, 'speed']).seconds/60
            for pace_info in sections],
         mode='markers', name='Past Section Pace',
         showlegend=True,

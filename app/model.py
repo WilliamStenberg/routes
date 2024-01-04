@@ -1,7 +1,11 @@
 import pandas as pd
 import math
 from dataclasses import dataclass
+from datetime import timedelta
 from PIL import Image
+
+s = 2 * math.pi * 6378137 / 2.0
+
 class Timeseries:
     def __init__(self, df: pd.DataFrame):
         self.df = df
@@ -49,27 +53,16 @@ class MercatorBox:
     def __str__(self):
         return f'mercatorbox-{self.north}-{self.east}-{self.south}-{self.west}'
 
-c =10018754.17139462
-
 
 def merc_to_latlong(mx: float, my: float):
-    #long = (mx / c) * 90.0
-    #lat = 180 / math.pi * (2 * math.atan( math.exp( ((my / c) * 90.0) * math.pi / 180.0)) - math.pi / 2.0)
-    s =2 * math.pi * 6378137 / 2. 
-
     long = (mx / s) * 180.0
     lat = (my / s) * 180.0
-
     lat = 180 / math.pi * (2 * math.atan( math.exp( lat * math.pi / 180.0)) - math.pi / 2.0)
     return lat, long
 
 def latlong_to_merc(lat: float, long: float):
-    s =2 * math.pi * 6378137 / 2. 
-    #mx = long * c / 90.0
-    #my = math.log( math.tan((90 + lat) * math.pi / 360.0 )) / (math.pi / 180.0) * c / 90.0
     mx = long * s / 180.0
     my = math.log( math.tan((90 + lat) * math.pi / 360.0 )) / (math.pi / 180.0)
-
     my = my * s / 180.0
     return mx, my
 
@@ -99,3 +92,24 @@ def latlong_box_to_merc(box: BoundingBox) -> MercatorBox:
 class Map:
     mercator_box: MercatorBox
     image: Image.Image
+
+def calculate_pace(delta_dist: float, delta_time: timedelta) -> timedelta:
+    try:
+        speed = abs(delta_dist) / (delta_time).seconds
+        # Convert to seconds / km as timedelta
+        pace = timedelta(seconds=1 / speed) if speed > 0 else timedelta(seconds=0)
+        return pace
+    except:
+        return timedelta(seconds=0)
+
+def moment_pace(delta_dist: float) -> timedelta:
+    if delta_dist < 1 or delta_dist != delta_dist:
+        return timedelta(seconds=0)
+    return timedelta(seconds=1000/delta_dist)
+
+def f(t: timedelta) -> str:
+    if t.seconds < 60:
+        return f'{t.seconds:02}s'
+    elif t.seconds % 60 == 0:
+        return f'{t.seconds // 60}min'
+    return f'{t.seconds//60}min, {(t.seconds % 60):02}s'
