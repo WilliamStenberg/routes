@@ -84,7 +84,6 @@ def ensure_persistent_map(sess, ts: model.Timeseries) -> Tuple[Map, model.Map]:
         return new_map, m
     else:
         return found_map, model.Map(
-            box=found_map.padded_route_bounding_box.bounding_box(),
             mercator_box=found_map.mercator_bounding_box.box(),
             image=Image.open(found_map.image_path))
 

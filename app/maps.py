@@ -16,7 +16,8 @@ def transient_map(box: model.BoundingBox) -> model.Map:
     """
     ndarray, extent = fetch_osv_image(box)
     im = Image.fromarray(ndarray)
-    return model.Map(image=im, box=box, mercator_box=extent)
+    newbox = model.merc_box_to_latlong(extent)
+    return model.Map(image=im, mercator_box=extent)
 
 
 def fetch_osv_image(box: model.BoundingBox
