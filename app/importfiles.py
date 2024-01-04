@@ -39,6 +39,8 @@ def refresh_db() -> List[db.Route]:
 def clear_maps():
     with db.sess() as sess:
         sess.execute(delete(db.Map))
+        sess.execute(delete(db.MercatorBoundingBox))
+        sess.execute(delete(db.PaddedRouteBoundingBox))
         sess.commit()
         for file_name in glob(utils.IMAGEPATH + '*.png'):
             os.remove(file_name)

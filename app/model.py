@@ -1,4 +1,5 @@
 import pandas as pd
+import math
 from dataclasses import dataclass
 from PIL import Image
 class Timeseries:
@@ -48,9 +49,53 @@ class MercatorBox:
     def __str__(self):
         return f'mercatorbox-{self.north}-{self.east}-{self.south}-{self.west}'
 
+c =10018754.17139462
+
+
+def merc_to_latlong(mx: float, my: float):
+    #long = (mx / c) * 90.0
+    #lat = 180 / math.pi * (2 * math.atan( math.exp( ((my / c) * 90.0) * math.pi / 180.0)) - math.pi / 2.0)
+    s =2 * math.pi * 6378137 / 2. 
+
+    long = (mx / s) * 180.0
+    lat = (my / s) * 180.0
+
+    lat = 180 / math.pi * (2 * math.atan( math.exp( lat * math.pi / 180.0)) - math.pi / 2.0)
+    return lat, long
+
+def latlong_to_merc(lat: float, long: float):
+    s =2 * math.pi * 6378137 / 2. 
+    #mx = long * c / 90.0
+    #my = math.log( math.tan((90 + lat) * math.pi / 360.0 )) / (math.pi / 180.0) * c / 90.0
+    mx = long * s / 180.0
+    my = math.log( math.tan((90 + lat) * math.pi / 360.0 )) / (math.pi / 180.0)
+
+    my = my * s / 180.0
+    return mx, my
+
+def merc_box_to_latlong(mercbox: MercatorBox) -> BoundingBox:
+    (north, west) = merc_to_latlong(mercbox.west, mercbox.north)
+    (south, east) = merc_to_latlong(mercbox.east, mercbox.south)
+
+    return BoundingBox(
+        north=north,
+        east=east,
+        south=south,
+        west=west)
+
+
+def latlong_box_to_merc(box: BoundingBox) -> MercatorBox:
+    (west, north) = latlong_to_merc(box.north, box.west)
+    (east, south) = latlong_to_merc(box.south, box.east)
+
+    return MercatorBox(
+        north=north,
+        east=east,
+        south=south,
+        west=west)
+
 
 @dataclass
 class Map:
-    box: BoundingBox
     mercator_box: MercatorBox
     image: Image.Image

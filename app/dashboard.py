@@ -26,10 +26,11 @@ class Model:
     def __init__(self):
         self.app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
         self.route = None
-        # self.map= None
+        self.map: model.Map
         self.layout = None
         self.route_data = RouteData(xs=[], ys=[], labels=None)
         with db.sess() as sess:
+            self.map = None  # type: ignore
             self.routes: List[db.Route] = db.routes(sess)
             self.set_layout()
 
@@ -73,7 +74,7 @@ class Model:
             self.df, map)
         self.route_data = RouteData(xs=xs, ys=ys, labels=list(zip(self.df['speed'], self.df['distance'])))
         self.layout = map_layout(map)
-        fig, style = self.generate_map_figure()
+        fig, style = self.map_figure()
         return fig, style
 
     def update_map_if_zoomed(self, relayout_data, fig, style):
@@ -92,7 +93,7 @@ class Model:
                 max_x = relayout_data['xaxis.range[1]']
                 min_y = relayout_data['yaxis.range[0]']
                 max_y = relayout_data['yaxis.range[1]']
-                old_box = self.map.box
+                old_box = model.merc_box_to_latlong(self.map.mercator_box)
                 # Compute ratio of current image to fetch as new (higher res) image
                 start_x = min_x / self.map.image.width
                 end_x = max_x / self.map.image.width
@@ -104,10 +105,10 @@ class Model:
                     x_diff = old_box.east - old_box.west
                     y_diff = old_box.north - old_box.south
                     new_box = model.BoundingBox(
-                        north = old_box.south + end_y * y_diff,
-                        east = old_box.west + end_x * x_diff,
-                        south = old_box.south + start_y * y_diff,
-                        west = old_box.west + start_x * x_diff
+                            north = old_box.south + end_y * y_diff,
+                            east = old_box.west + end_x * x_diff,
+                            south = old_box.south + start_y * y_diff,
+                            west = old_box.west + start_x * x_diff
                     )
                     new_map = maps.transient_map(new_box)
                     return self.load_route_image(new_map)
@@ -130,20 +131,10 @@ class Model:
             ]),
         ])
 
-    def generate_map_figure(self):
+    def map_figure(self):
+        fig = map_route(self.route_data, self.map, self.layout)
         height= self.map.image.height
         width = self.map.image.width
-        map_hovertext = 'Speed: %{customdata[0]:.3f}m/s<br>'
-        map_hovertext += 'Distance: %{customdata[1]:.1f}'
-        scat = go.Scatter(x=self.route_data.xs, y=self.route_data.ys,
-                          mode='lines', name='Route', showlegend=True,
-                          customdata=self.route_data.labels,
-                          hovertemplate=map_hovertext)
-
-        fix = go.Scatter(
-            x=[0, width], y=[0, height],
-            mode='markers', marker_opacity=0, showlegend=False)
-        fig = go.Figure(data=[scat, fix], layout=self.layout)
         ratio = width / height
         width_percent = 80
         height_percent = width_percent / ratio
@@ -175,6 +166,21 @@ def generate_route_dropdown(routes: List[db.Route],
             multi=multiple
         )
     ]
+
+def map_route(route_data_in_view: RouteData, map: model.Map, layout):
+    map_hovertext = 'Speed: %{customdata[0]:.3f}m/s<br>'
+    map_hovertext += 'Distance: %{customdata[1]:.1f}'
+    scat = go.Scatter(x=route_data_in_view.xs, y=route_data_in_view.ys,
+                      mode='lines', name='Route', showlegend=True,
+                      customdata=route_data_in_view.labels,
+                      hovertemplate=map_hovertext)
+
+    fix = go.Scatter(
+        x=[0, map.image.width], y=[0, map.image.height],
+        mode='markers', marker_opacity=0, showlegend=False)
+    fig = go.Figure(data=[scat, fix], layout=layout)
+    return fig
+
 
 
 def graph_speed_lines(df: pd.DataFrame):
@@ -293,7 +299,7 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
 
 def map_layout(map) -> go.Layout:
     layout = go.Layout(
-        uirevision=f'{map.image.width}x{map.image.height}',  # Only reset zoom etc on map change
+        uirevision=None,  # f'{map.image.width}x{map.image.height}',  # Only reset zoom etc on map change
         title='Geodata',
         autosize=False,
         xaxis=dict(range=[0, map.image.width]),
