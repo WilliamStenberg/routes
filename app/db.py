@@ -9,6 +9,7 @@ from sqlalchemy import ForeignKey
 from sqlalchemy import create_engine
 from sqlalchemy import select
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
@@ -27,8 +28,8 @@ def setup():
     db_engine = engine()
     Base.metadata.create_all(db_engine)
 
-def sess():
-    return Session( engine())
+def sess(expire_on_commit: bool = True):
+    return Session(engine(), expire_on_commit=expire_on_commit)
 
 class Base(DeclarativeBase):
     pass
@@ -61,10 +62,9 @@ class Map(Base):
          back_populates="map", cascade="all, delete-orphan"
         )
 
-def ensure_persistent_map(sess, ts: model.Timeseries) -> Tuple[Map, model.Map]:
-    tight_box = ts.bounding_box()
-    padded_rect = tight_box.padded_rect()
-    found_map = smallest_map_enclosing(sess, tight_box)
+def ensure_persistent_map(sess, box: model.BoundingBox) -> Tuple[Map, model.Map]:
+    padded_rect = box.padded_rect()
+    found_map = smallest_map_enclosing(sess, box)
     twice_padded = padded_rect.padded_rect()
     # create a new map if we
     # a) didn't find a map enclosing the tight box, or
@@ -81,6 +81,7 @@ def ensure_persistent_map(sess, ts: model.Timeseries) -> Tuple[Map, model.Map]:
             image_height=m.image.height
             )
         sess.add(new_map)
+        sess.commit()
         return new_map, m
     else:
         return found_map, model.Map(
@@ -120,36 +121,21 @@ class Route(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    bounding_box: Mapped["RouteBoundingBox"] = relationship(
-         back_populates="route", cascade="all, delete-orphan"
-        )
     map_id: Mapped[int] = mapped_column(ForeignKey("map.id"))
     map: Mapped["Map"] = relationship(back_populates="routes")
+
+    def properties(self):
+        return {k: self.__dict__[k] for k in ['id', 'title', 'distance', 'created_at']}
 
 def routes(sess) -> List[Route]:
     stmt = select(Route).order_by(Route.created_at.desc())
     res = sess.execute(stmt).scalars()
     return list(res)
 
+def routes_in_box(routes: List[Route], box: model.BoundingBox) -> List[Route]:
+    return [r for r in routes if box.contains_point(r.start_lat, r.start_long)]
 
-class RouteBoundingBox(Base):
-    __tablename__ = "route_bounding_box"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    north: Mapped[float]
-    east: Mapped[float]
-    south: Mapped[float]
-    west: Mapped[float]
-    route_id: Mapped[int] = mapped_column(ForeignKey("running_route.id"))
-    route: Mapped["Route"] = relationship(back_populates="bounding_box", single_parent=True)
 
-    def __init__(self, box: model.BoundingBox):
-        self.north=box.north
-        self.east=box.east
-        self.south=box.south
-        self.west=box.west
-
-    def bounding_box(self) -> model.BoundingBox:
-        return model.BoundingBox(north=self.north, east=self.east, south=self.south, west=self.west)
 
 class PaddedRouteBoundingBox(Base):
     __tablename__ = "padded_route_bounding_box"

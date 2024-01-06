@@ -1,3 +1,4 @@
+from typing import List, Tuple
 import pandas as pd
 import math
 from dataclasses import dataclass
@@ -43,6 +44,9 @@ class BoundingBox:
     def contains(self, other: "BoundingBox") -> bool:
         return self.north >= other.north and self.east >= other.east and self.south <= other.south and self.west <= other.west
 
+    def contains_point(self, lat: float, long: float) -> bool:
+        return self.north >= lat and self.east >= long and self.south <= lat and self.west <= long
+
 @dataclass
 class MercatorBox:
     north: float
@@ -52,6 +56,9 @@ class MercatorBox:
 
     def __str__(self):
         return f'mercatorbox-{self.north}-{self.east}-{self.south}-{self.west}'
+
+    def contains_point(self, mx: float, my: float) -> bool:
+        return self.north >= my and self.east >= mx and self.south <= my and self.west <= mx
 
 
 def merc_to_latlong(mx: float, my: float):
@@ -86,6 +93,20 @@ def latlong_box_to_merc(box: BoundingBox) -> MercatorBox:
         east=east,
         south=south,
         west=west)
+
+def box_around_boxes(boxes: List[BoundingBox]) -> BoundingBox:
+    return BoundingBox(
+        north = max([b.north for b in boxes]),
+        east = max([b.east for b in boxes]),
+        south = min([b.south for b in boxes]),
+        west = min([b.west for b in boxes]))
+
+def box_around_latlong_points(points: List[Tuple[float, float]]) -> BoundingBox:
+    return BoundingBox(
+        north = max([b[0] for b in points]),
+        east = max([b[1] for b in points]),
+        south = min([b[0] for b in points]),
+        west = min([b[1] for b in points]))
 
 
 @dataclass

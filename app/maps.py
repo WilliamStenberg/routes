@@ -45,20 +45,34 @@ def transform_geodata(df: pd.DataFrame, map: model.Map) -> Tuple[List, List]:
     Given a dataframe with image shape and mercator bounding box,
     converts lat/long to WebMercator and scales and translates.
     """
+    lats = df.position_lat
+    longs = df.position_long
+    gdf = gpd.GeoDataFrame(
+        df, geometry=gpd.points_from_xy(longs, lats))
+    return transform_gdf(gdf, map)
 
+def transform_points(lats, longs, map: model.Map) -> Tuple[List, List]:
+    df = pd.DataFrame({'position_lat': lats, 'position_long': longs})
+    return transform_geodata(df, map)
+
+def scale_factor(map):
     max_x = map.mercator_box.east
     min_x = map.mercator_box.west
     min_y = map.mercator_box.south
     max_y = map.mercator_box.north
     scale_factor_x = map.image.width / (max_x - min_x)
     scale_factor_y = map.image.height / (max_y - min_y)
+    return scale_factor_x, scale_factor_y
 
-    raw_gdf = gpd.GeoDataFrame(
-        df, geometry=gpd.points_from_xy(df.position_long, df.position_lat))
-    gdf = raw_gdf.set_crs(4327)  # Coordinates are in lat/long WGS format
+def transform_gdf(gdf, map):
+    gdf = gdf.set_crs(4327)  # Coordinates are in lat/long WGS format
     gdf = gdf.to_crs('epsg:3857')  # Transform the geometry to WebMercator
+    scale_factor_x, scale_factor_y = scale_factor(map)
+    min_x = map.mercator_box.west
+    min_y = map.mercator_box.south
     if gdf is not None and gdf.geometry is not None:
         xs = (gdf.geometry.x - min_x) * scale_factor_x
         ys = (gdf.geometry.y - min_y) * scale_factor_y
         return xs, ys
     return [], []
+

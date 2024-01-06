@@ -20,7 +20,7 @@ def make_route(sess, file_name: str, df: pd.DataFrame) -> db.Route:
     location = [first_row['position_lat'], first_row['position_long']]
     datetime = first_row['timestamp']
     title = file_name.replace(utils.DATAPATH, '').rstrip('.fit')
-    route_map, _ = db.ensure_persistent_map(sess, model.Timeseries(df))
+    route_map, _ = db.ensure_persistent_map(sess, model.Timeseries(df).bounding_box())
     sess.add(route_map)
     route = db.Route(title=title,
                   file_name=file_name,

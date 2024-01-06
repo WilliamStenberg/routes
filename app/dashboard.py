@@ -13,6 +13,7 @@ import db as db
 import parser as parser
 import maps as maps
 import model as model
+from ui import map as uimap
 
 external_stylesheets = []
 
@@ -64,7 +65,9 @@ class Model:
 
     def initial_route_image(self):
         with db.sess() as sess:
-            _, map = db.ensure_persistent_map(sess, model.Timeseries(self.df))
+
+            ts = model.Timeseries(self.df)
+            _, map = db.ensure_persistent_map(sess, ts.bounding_box())
             fig, style = self.load_route_image(map)
             return fig, style
 
@@ -73,7 +76,7 @@ class Model:
         xs, ys = maps.transform_geodata(
             self.df, map)
         self.route_data = RouteData(xs=xs, ys=ys, labels=list(zip(self.df['speed'].apply(lambda s: model.f(model.moment_pace(s))), self.df['distance'])))
-        self.layout = map_layout(map)
+        self.layout = uimap.map_layout(map)
         fig, style = self.map_figure()
         return fig, style
 
@@ -117,7 +120,7 @@ class Model:
 
     def set_layout(self):
         self.app.layout = html.Div(children=[
-            html.H1(children='Routes'),
+            html.H1(children='Single route'),
 
             html.Div(children='Interactive running statistics'),
             *generate_route_dropdown(self.routes,
@@ -298,27 +301,6 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
         figure=fig
     )
     return [graph]
-
-
-def map_layout(map) -> go.Layout:
-    layout = go.Layout(
-        uirevision=None,  # f'{map.image.width}x{map.image.height}',  # Only reset zoom etc on map change
-        title='Geodata',
-        autosize=False,
-        xaxis=dict(range=[0, map.image.width]),
-        yaxis=dict(range=[0, map.image.height]),
-        images=[go.layout.Image(
-            source=map.image,
-            xref='x',
-            yref='y',
-            x=0,
-            y=map.image.height,
-            sizex=map.image.width,
-            sizey=map.image.height,
-            sizing='stretch',
-            opacity=1,
-            layer='below')])
-    return layout
 
 
 def run():
