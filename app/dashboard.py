@@ -17,6 +17,7 @@ from ui import map as uimap
 
 external_stylesheets = []
 
+
 class Model:
     def __init__(self):
         self.app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -78,19 +79,25 @@ class Model:
     def load_route_image(self, map: model.Map):
         xs, ys = maps.transform_geodata(
             self.df, map)
-        self.uiroutemap = uimap.Map(map, xs, ys, list(zip(self.df['speed'].apply(lambda s: model.pace_to_str(model.moment_pace(s))), self.df['distance'])))
+
+        def pacify(dist: float):
+            model.pace_to_str(model.moment_pace(dist))
+
+        labels = list(zip(self.df['speed'].apply(pacify), self.df['distance']))
+        self.uiroutemap = uimap.Map(map, xs, ys, labels)
         fig, style = self.map_figure()
         return fig, style
 
     def update_map_if_zoomed(self, relayout_data, fig=go.Figure(), style=dict()):
         def f(new_box):
-           new_map = maps.transient_map(new_box)
-           return self.load_route_image(new_map)
+            new_map = maps.transient_map(new_box)
+            return self.load_route_image(new_map)
         return with_zoomed_box(relayout_data, fig, style, self.uiroutemap, self.initial_route_image, f)
 
     def update_act_map_if_zoomed(self, relayout_data, fig=go.Figure(), style=dict()):
         print(f'beeeefore: {self.uiactmap}')
         print(f'beeeefore: {self.routes}')
+
         def f(new_box):
             new_map = maps.transient_map(new_box)
             self.routes = db.routes_in_box(self.routes, model.merc_box_to_latlong(new_map.mercator_box))
@@ -113,7 +120,6 @@ class Model:
             timestamp = datetime.strptime(time_string, '%Y-%m-%d %H:%M:%S.%f')
         return int((timestamp.astimezone(ref.tz) - ref).seconds)
 
-
     def map_activity_figure(self):
         if (m := self.uiactmap) is not None:
             fig = map_for_activities(m)
@@ -124,27 +130,32 @@ class Model:
     def make_activity_figure(self):
         fig, style = self.initial_activity_image()
         return html.Div(id='act-map-output', children=[
-                dcc.Graph(id='map-figure', figure=fig, style=style)
-            ])
+            dcc.Graph(id='map-figure', figure=fig, style=style)
+        ])
 
     def make_activity_table(self):
         cols = [
             dict(id='id', name='id'),
             dict(id='title', name='title'),
-            dict(id='distance', name='distance', type='numeric', format=Format(precision=1, scheme=Scheme.fixed)),
+            dict(id='distance', name='distance',
+                 type='numeric', format=Format(precision=1, scheme=Scheme.fixed)),
             dict(id='avg_pace', name='avg_pace'),
-            dict(id='avg_heartrate', name='avg_heartrate', type='numeric', format=Format(precision=0, scheme=Scheme.fixed)),
+            dict(id='avg_heartrate', name='avg_heartrate',
+                 type='numeric', format=Format(precision=0, scheme=Scheme.fixed)),
             dict(id='created_at', name='created_at')
         ]
         records = self.activity_records()
-        component = dash_table.DataTable(id='table', data=records, columns=cols, row_selectable='single')
+        component = dash_table.DataTable(
+            id='table',
+            data=records,
+            columns=cols,
+            row_selectable='single')
         return component
 
     def activity_records(self):
-        df = pd.DataFrame([r.properties() for r in  self.routes])
+        df = pd.DataFrame([r.properties() for r in self.routes])
         print([r.properties() for r in self.routes])
         return df.sort_values(by='created_at', ascending=False).to_dict('records')
-
 
 
 def with_zoomed_box(relayout_data, fig, style, uimap, initial_func, func):
@@ -175,14 +186,13 @@ def with_zoomed_box(relayout_data, fig, style, uimap, initial_func, func):
                 x_diff = old_box.east - old_box.west
                 y_diff = old_box.north - old_box.south
                 new_box = model.BoundingBox(
-                        north = old_box.south + end_y * y_diff,
-                        east = old_box.west + end_x * x_diff,
-                        south = old_box.south + start_y * y_diff,
-                        west = old_box.west + start_x * x_diff
+                    north=old_box.south + end_y * y_diff,
+                    east=old_box.west + end_x * x_diff,
+                    south=old_box.south + start_y * y_diff,
+                    west=old_box.west + start_x * x_diff
                 )
                 return func(new_box)
     return fig, style
-
 
 
 def generate_route_dropdown(routes: List[db.Route],
@@ -209,17 +219,16 @@ def map_route(uimap):
     return uimap.fig(map_hovertext)
 
 
-
 def graph_speed_lines(df: pd.DataFrame):
     """ Line graph of speed over time for given dataframe """
     pace_hovertext = 'Pace: %{customdata[1]} per km<br>'
     pace_hovertext += 'Distance: %{customdata[0]:.1f} km'
     pace = df['speed'].apply(model.moment_pace)
-    pace_as_float = pace.apply(lambda t: t.seconds/60)
+    pace_as_float = pace.apply(lambda t: t.seconds / 60)
     speed_lines = go.Scatter(
         x=df['timestamp'], y=pace_as_float,
         mode='lines', name='Pace [min/km]', showlegend=True,
-        customdata=[(t['distance'],model.pace_to_str(p)) for (_, t), p in zip(df.iterrows(), pace)],
+        customdata=[(t['distance'], model.pace_to_str(p)) for (_, t), p in zip(df.iterrows(), pace)],
         hovertemplate=pace_hovertext,
         yaxis='y'
     )
@@ -256,6 +265,7 @@ def graph_heartrate_lines(df: pd.DataFrame):
         mirror=False,
         showline=True,
         side='left',
+
         tickfont={'color': '#e91e63'},
         tickmode='auto',
         ticks='',
@@ -279,7 +289,7 @@ def graph_pace_markers(df: pd.DataFrame, sections: List[parser.SectionPaceInfo]
     pace_markers = go.Scatter(
         x=[df.loc[pace_info.end_index, 'timestamp']
            for pace_info in sections],
-        y=[model.moment_pace(df.loc[pace_info.end_index, 'speed']).seconds/60
+        y=[model.moment_pace(df.loc[pace_info.end_index, 'speed']).seconds / 60
            for pace_info in sections],
         mode='markers', name='Past Section Pace',
         showlegend=True,
@@ -303,8 +313,8 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
         type='date')
 
     speed_lines, speed_ydict = graph_speed_lines(df)
-    sections = parser.section_pace_infos(df, kilometer_distance_steps=1,
-                                  include_total=False)
+    sections = parser.section_pace_infos(
+        df, kilometer_distance_steps=1, include_total=False)
     pace_markers = graph_pace_markers(df, sections)
     fig.add_trace(speed_lines)
     fig.add_trace(pace_markers)
@@ -326,80 +336,80 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
     )
     return [graph]
 
+
 def map_for_activities(uimap):
     map_hovertext = '%{customdata}<br>'
     return uimap.fig(map_hovertext, mode='markers')
 
+
 def run():
-   model: Model = Model()
-   model.app.layout = html.Div(children=[
-            html.H1(children='Routes'),
-            html.Div(children='Interactive running statistics'),
-            model.make_activity_figure(),
-            model.make_activity_table(),
-            *generate_route_dropdown(model.routes,
-                                     multiple=False),
-            html.Div(id='graph-output', children=[
-                dcc.Graph(id='speed-graph', style={'visibility': 'hidden'})
-            ]),
-            html.Div(id='route-map-output', children=[
-                dcc.Graph(id='route-map-figure', figure=go.Figure(),
-                          style={'visibility': 'hidden'})
-            ]),
-        ])
+    model: Model = Model()
+    model.app.layout = html.Div(children=[
+        html.H1(children='Routes'),
+        html.Div(children='Interactive running statistics'),
+        model.make_activity_figure(),
+        model.make_activity_table(),
+        *generate_route_dropdown(model.routes,
+                                 multiple=False),
+        html.Div(id='graph-output', children=[
+            dcc.Graph(id='speed-graph', style={'visibility': 'hidden'})
+        ]),
+        html.Div(id='route-map-output', children=[
+            dcc.Graph(id='route-map-figure', figure=go.Figure(),
+                      style={'visibility': 'hidden'})
+        ]),
+    ])
 
-   @model.app.callback(
-       [Output('map-figure', 'figure', allow_duplicate=True),
-        Output('map-figure', 'style', allow_duplicate=True),
-        Output('table','data', allow_duplicate=True)],
-       Input('map-figure', 'relayoutData'),
-       State('map-figure', 'figure'),
-       State('map-figure', 'style'),
-       prevent_initial_call=True)
-   def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
-       return model.update_act_map_if_zoomed(relayout_data, fig, style)
+    @model.app.callback(
+        [Output('map-figure', 'figure', allow_duplicate=True),
+         Output('map-figure', 'style', allow_duplicate=True),
+         Output('table', 'data', allow_duplicate=True)],
+        Input('map-figure', 'relayoutData'),
+        State('map-figure', 'figure'),
+        State('map-figure', 'style'),
+        prevent_initial_call=True)
+    def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
+        return model.update_act_map_if_zoomed(relayout_data, fig, style)
 
-   @model.app.callback(
-       [Output('graph-output', 'children', allow_duplicate=True),
-       Output('route-map-figure', 'figure', allow_duplicate=True),
-       Output('route-map-figure', 'style', allow_duplicate=True)],
-       Input('table', 'selected_row_ids'),
-       prevent_initial_call=True)
-   def _(selected_row_ids):
-       if selected_row_ids and (route_id := selected_row_ids[0]) is not None:
-           print(f'route id {route_id}')
-           return model.update_output_div(route_id)
+    @model.app.callback(
+        [Output('graph-output', 'children', allow_duplicate=True),
+         Output('route-map-figure', 'figure', allow_duplicate=True),
+         Output('route-map-figure', 'style', allow_duplicate=True)],
+        Input('table', 'selected_row_ids'),
+        prevent_initial_call=True)
+    def _(selected_row_ids):
+        if selected_row_ids and (route_id := selected_row_ids[0]) is not None:
+            print(f'route id {route_id}')
+            return model.update_output_div(route_id)
 
-   @model.app.callback(
-       [Output('graph-output', 'children', allow_duplicate=True),
-       Output('route-map-figure', 'figure', allow_duplicate=True),
-       Output('route-map-figure', 'style', allow_duplicate=True)],
-       Input('route-dropdown', 'value'),
-       prevent_initial_call=True
-   )
-   def _(route_id: str):
-       return model.update_output_div(route_id)
+    @model.app.callback(
+        [Output('graph-output', 'children', allow_duplicate=True),
+         Output('route-map-figure', 'figure', allow_duplicate=True),
+         Output('route-map-figure', 'style', allow_duplicate=True)],
+        Input('route-dropdown', 'value'),
+        prevent_initial_call=True
+    )
+    def _(route_id: str):
+        return model.update_output_div(route_id)
 
-   @model.app.callback(
-       [Output('route-map-figure', 'figure', allow_duplicate=True),
-        Output('route-map-figure', 'style', allow_duplicate=True)],
-       Input('route-map-figure', 'relayoutData'),
-       State('route-map-figure', 'figure'),
-       State('route-map-figure', 'style'),
-       prevent_initial_call=True)
-   def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
-       ret= model.update_map_if_zoomed(relayout_data, fig, style)
-       return ret
+    @model.app.callback(
+        [Output('route-map-figure', 'figure', allow_duplicate=True),
+         Output('route-map-figure', 'style', allow_duplicate=True)],
+        Input('route-map-figure', 'relayoutData'),
+        State('route-map-figure', 'figure'),
+        State('route-map-figure', 'style'),
+        prevent_initial_call=True)
+    def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
+        return model.update_map_if_zoomed(relayout_data, fig, style)
 
-   @model.app.callback(
-       [Output('route-map-figure', 'figure', allow_duplicate=True),
-        Output('route-map-figure', 'style', allow_duplicate=True)],
-       Input('speed-graph', 'relayoutData'),
-       State('route-map-figure', 'figure'),
-       State('route-map-figure', 'style'),
-       prevent_initial_call=True)
-   def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
-       return model.render_part_of_route(relayout_data, fig, style)
+    @model.app.callback(
+        [Output('route-map-figure', 'figure', allow_duplicate=True),
+         Output('route-map-figure', 'style', allow_duplicate=True)],
+        Input('speed-graph', 'relayoutData'),
+        State('route-map-figure', 'figure'),
+        State('route-map-figure', 'style'),
+        prevent_initial_call=True)
+    def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
+        return model.render_part_of_route(relayout_data, fig, style)
 
-   model.app.run_server(debug=True)
-
+    model.app.run_server(debug=True)

@@ -9,6 +9,7 @@ import model as model
 import parser as parser
 import utils as utils
 
+
 def make_route(sess, file_name: str, df: pd.DataFrame) -> db.Route:
     """
     Parse file into dataframe and then that into a Route object.
@@ -28,20 +29,21 @@ def make_route(sess, file_name: str, df: pd.DataFrame) -> db.Route:
     if 'heart_rate' in df.columns and (rs := df['heart_rate'].dropna()).size > 0:
         avg_heartrate = rs.mean()
     route = db.Route(title=title,
-                  file_name=file_name,
-                  distance=distance,
-                  avg_pace=avg_pace,
-                  avg_heartrate=avg_heartrate,
-                  start_lat=location[0],
-                  start_long=location[1],
-                  created_at=datetime,
-                  map=route_map)
+                     file_name=file_name,
+                     distance=distance,
+                     avg_pace=avg_pace,
+                     avg_heartrate=avg_heartrate,
+                     start_lat=location[0],
+                     start_long=location[1],
+                     created_at=datetime,
+                     map=route_map)
     sess.add(route)
     return route
 
 
 def refresh_db() -> List[db.Route]:
     return sync(clear=True)
+
 
 def clear_maps():
     db.setup()
@@ -52,6 +54,7 @@ def clear_maps():
         sess.commit()
         for file_name in glob(utils.IMAGEPATH + '*.png'):
             os.remove(file_name)
+
 
 def sync(clear: bool = False) -> List[db.Route]:
     db.setup()

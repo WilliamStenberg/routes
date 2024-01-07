@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 
 import model as model
-import utils as utils
 from PIL import Image
 
 
@@ -16,7 +15,6 @@ def transient_map(box: model.BoundingBox) -> model.Map:
     """
     ndarray, extent = fetch_osv_image(box)
     im = Image.fromarray(ndarray)
-    newbox = model.merc_box_to_latlong(extent)
     return model.Map(image=im, mercator_box=extent)
 
 
@@ -29,10 +27,10 @@ def fetch_osv_image(box: model.BoundingBox
     Includes the image's extent (image corners) as a new coordinate rectangle
     in WebMercator projection.
     """
-    osv_source = ctx.providers.OpenStreetMap.Mapnik # type: ignore
-    im, extent = ctx.bounds2img(box.west, box.south, box.east, box.north,
-                                ll=True,
-                                source=osv_source)
+    osv_source = ctx.providers.OpenStreetMap.Mapnik  # type: ignore
+    im, extent = ctx.bounds2img(
+        box.west, box.south, box.east, box.north,
+        ll=True, source=osv_source)
     # Extent is given in another order
     [min_x, max_x, min_y, max_y] = extent
     return im, model.MercatorBox(west=min_x, south=min_y, east=max_x, north=max_y)
@@ -47,13 +45,14 @@ def transform_geodata(df: pd.DataFrame, map: model.Map) -> Tuple[List, List]:
     """
     lats = df.position_lat
     longs = df.position_long
-    gdf = gpd.GeoDataFrame(
-        df, geometry=gpd.points_from_xy(longs, lats))
+    gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(longs, lats))
     return transform_gdf(gdf, map)
+
 
 def transform_points(lats, longs, map: model.Map) -> Tuple[List, List]:
     df = pd.DataFrame({'position_lat': lats, 'position_long': longs})
     return transform_geodata(df, map)
+
 
 def scale_factor(map):
     max_x = map.mercator_box.east
@@ -63,6 +62,7 @@ def scale_factor(map):
     scale_factor_x = map.image.width / (max_x - min_x)
     scale_factor_y = map.image.height / (max_y - min_y)
     return scale_factor_x, scale_factor_y
+
 
 def transform_gdf(gdf, map):
     gdf = gdf.set_crs(4327)  # Coordinates are in lat/long WGS format
@@ -75,4 +75,3 @@ def transform_gdf(gdf, map):
         ys = (gdf.geometry.y - min_y) * scale_factor_y
         return xs, ys
     return [], []
-
