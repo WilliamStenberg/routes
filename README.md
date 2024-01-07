@@ -4,14 +4,18 @@ A route is a time series of geospatial data with additional running metadata suc
 pace, distance, and optionally data from sensors (e.g. heart rate or cadence.)
 
 ## Installation
-TOTO: write
-* Virtualenv
-* MongoDB (local installation example)
+* Set up Virtualenv, do `pip install -r requirements.txt`
+* Place your `.fit`-files in the directory pointed to by `utils.py`, or change the dir
+```
+$ python -i app/importfiles.py
+```
 
-## Roadmap
-* Parse FIT-files in `data/fitfiles` into dataframes
-* Aggregate route properties (mean pace, total distance...)
-* Save into MongoDB database
-* Fetch satellite map for location, store the image in `data/maps`
-* Plotly Dashboard for single route
-* Plotly Dashboard routes overview (aggregations)
+```
+> sync()
+```
+
+Exit Python and then run
+
+```
+$ python app/main.py
+```
