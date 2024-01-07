@@ -10,9 +10,7 @@ def map_layout(map) -> go.Layout:
         autosize=False,
         xaxis=dict(range=[0, map.image.width], showgrid=False),
         yaxis=dict(range=[0, map.image.height], showgrid=False),
-        #width=map.image.width,
         minreducedwidth=map.image.width,
-        #height=map.image.height,
         images=[go.layout.Image(
             source=map.image,
             xref='x',

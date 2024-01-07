@@ -81,7 +81,7 @@ class Model:
             self.df, map)
 
         def pacify(dist: float):
-            model.pace_to_str(model.moment_pace(dist))
+            return model.pace_to_str(model.moment_pace(dist))
 
         labels = list(zip(self.df['speed'].apply(pacify), self.df['distance']))
         self.uiroutemap = uimap.Map(map, xs, ys, labels)
@@ -95,9 +95,6 @@ class Model:
         return with_zoomed_box(relayout_data, fig, style, self.uiroutemap, self.initial_route_image, f)
 
     def update_act_map_if_zoomed(self, relayout_data, fig=go.Figure(), style=dict()):
-        print(f'beeeefore: {self.uiactmap}')
-        print(f'beeeefore: {self.routes}')
-
         def f(new_box):
             new_map = maps.transient_map(new_box)
             self.routes = db.routes_in_box(self.routes, model.merc_box_to_latlong(new_map.mercator_box))
@@ -154,8 +151,11 @@ class Model:
 
     def activity_records(self):
         df = pd.DataFrame([r.properties() for r in self.routes])
-        print([r.properties() for r in self.routes])
-        return df.sort_values(by='created_at', ascending=False).to_dict('records')
+        try:
+
+            return df.sort_values(by='created_at', ascending=False).to_dict('records')
+        except Exception:
+            return df.to_dict('records')
 
 
 def with_zoomed_box(relayout_data, fig, style, uimap, initial_func, func):
@@ -167,6 +167,8 @@ def with_zoomed_box(relayout_data, fig, style, uimap, initial_func, func):
             print('autosize')
             return fig, style
         elif 'dragmode' in relayout_data:
+            return initial_func()
+        elif 'xaxis.range' in relayout_data and 'yaxis.range' in relayout_data:
             return initial_func()
         else:
             print(relayout_data)
@@ -379,7 +381,6 @@ def run():
         prevent_initial_call=True)
     def _(selected_row_ids):
         if selected_row_ids and (route_id := selected_row_ids[0]) is not None:
-            print(f'route id {route_id}')
             return model.update_output_div(route_id)
 
     @model.app.callback(
