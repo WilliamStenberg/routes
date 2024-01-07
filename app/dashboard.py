@@ -1,44 +1,35 @@
-from typing import List, Dict, Optional, Any, Tuple
-from dataclasses import dataclass
-import dash
-from dash import html
-from dash import dcc
-from dash.development.base_component import Component
-from dash.dependencies import Input, Output, State
-import plotly.graph_objects as go
 import pandas as pd
+import plotly.graph_objects as go
+
+import dash
+from dash import html, dcc, dash_table
+from dash.dash_table.Format import Format, Scheme
+from dash.dependencies import Input, Output, State
+from dash.development.base_component import Component
 from datetime import datetime
+from typing import List, Dict, Optional, Any, Tuple
 
 import db as db
 import parser as parser
 import maps as maps
 import model as model
+from ui import map as uimap
 
 external_stylesheets = []
 
-@dataclass
-class RouteData:
-    xs: List[float]
-    ys: List[float]
-    labels: Any
 
 class Model:
     def __init__(self):
         self.app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
         self.route = None
-        self.map: model.Map
-        self.layout = None
-        self.route_data = RouteData(xs=[], ys=[], labels=None)
-        with db.sess() as sess:
-            self.map = None  # type: ignore
-            self.routes: List[db.Route] = db.routes(sess)
-            self.set_layout()
+        self.uiroutemap = None
+        self.uiactmap = None
 
     def render_part_of_route(self, relayout_data=dict(), fig=go.Figure(), style=dict()):
-        if self.layout:
+        if self.uiroutemap:
             if relayout_data and 'xaxis.autorange' in relayout_data.keys():
                 start = 0
-                stop = len(self.route_data.xs) - 1
+                stop = len(self.uiroutemap.xs) - 1
             elif relayout_data and 'xaxis.range[0]' in relayout_data.keys():
                 start = self.timestring_to_index(relayout_data['xaxis.range[0]'])
                 stop = self.timestring_to_index(relayout_data['xaxis.range[1]'])
@@ -49,9 +40,9 @@ class Model:
             else:
                 return fig, style
             if len(fig['data']) > 0:  # type: ignore
-                fig['data'][0]['x'] = self.route_data.xs[start:stop]  # type: ignore
-                fig['data'][0]['y'] = self.route_data.ys[start:stop]  # type: ignore
-                fig['data'][0]['customdata'] = self.route_data.labels[start:stop]  # type: ignore
+                fig['data'][0]['x'] = self.uiroutemap.xs[start:stop]  # type: ignore
+                fig['data'][0]['y'] = self.uiroutemap.ys[start:stop]  # type: ignore
+                fig['data'][0]['customdata'] = self.uiroutemap.labels[start:stop]  # type: ignore
         return fig, style
 
     def update_output_div(self, route_id: str) -> Optional[Tuple[List[Component], Any, Any]]:
@@ -62,84 +53,64 @@ class Model:
                 self.route = route
                 return graph, *self.initial_route_image()
 
+    def initial_activity_image(self):
+        with db.sess() as sess:
+            self.routes: List[db.Route] = db.routes(sess)
+            box = model.box_around_latlong_points([(r.start_lat, r.start_long) for r in self.routes])
+            _, map = db.ensure_persistent_map(sess, box)
+            fig, style = self.load_activity_image(map)
+            return fig, style
+
+    def load_activity_image(self, map: model.Map):
+        lats = [r.start_lat for r in self.routes]
+        longs = [r.start_long for r in self.routes]
+        xs, ys = maps.transform_points(lats, longs, map)
+        self.uiactmap = uimap.Map(map, xs, ys, ['One' for _ in xs])
+        fig, style = self.map_activity_figure()
+        return fig, style
+
     def initial_route_image(self):
         with db.sess() as sess:
-            _, map = db.ensure_persistent_map(sess, model.Timeseries(self.df))
+            ts = model.Timeseries(self.df)
+            _, map = db.ensure_persistent_map(sess, ts.bounding_box())
             fig, style = self.load_route_image(map)
             return fig, style
 
     def load_route_image(self, map: model.Map):
-        self.map = map
         xs, ys = maps.transform_geodata(
             self.df, map)
-        self.route_data = RouteData(xs=xs, ys=ys, labels=list(zip(self.df['speed'].apply(lambda s: model.f(model.moment_pace(s))), self.df['distance'])))
-        self.layout = map_layout(map)
+
+        def pacify(dist: float):
+            model.pace_to_str(model.moment_pace(dist))
+
+        labels = list(zip(self.df['speed'].apply(pacify), self.df['distance']))
+        self.uiroutemap = uimap.Map(map, xs, ys, labels)
         fig, style = self.map_figure()
         return fig, style
 
-    def update_map_if_zoomed(self, relayout_data, fig, style):
-        if self.layout and relayout_data:
-            if 'xaxis.autorange' in relayout_data:
-                print('autorange')
-                return self.initial_route_image()
-            elif 'autosize' in relayout_data:
-                print('autosize')
-                return fig, style
-            elif 'dragmode' in relayout_data:
-                return self.initial_route_image()
-            else:
-                print(relayout_data)
-                min_x = relayout_data['xaxis.range[0]']
-                max_x = relayout_data['xaxis.range[1]']
-                min_y = relayout_data['yaxis.range[0]']
-                max_y = relayout_data['yaxis.range[1]']
-                old_box = model.merc_box_to_latlong(self.map.mercator_box)
-                # Compute ratio of current image to fetch as new (higher res) image
-                start_x = min_x / self.map.image.width
-                end_x = max_x / self.map.image.width
-                zoom_x = end_x - start_x
-                start_y = min_y / self.map.image.height
-                end_y = max_y / self.map.image.height
-                zoom_y = end_y - start_y
-                if zoom_x < 0.5 or zoom_y < 0.5:
-                    x_diff = old_box.east - old_box.west
-                    y_diff = old_box.north - old_box.south
-                    new_box = model.BoundingBox(
-                            north = old_box.south + end_y * y_diff,
-                            east = old_box.west + end_x * x_diff,
-                            south = old_box.south + start_y * y_diff,
-                            west = old_box.west + start_x * x_diff
-                    )
-                    new_map = maps.transient_map(new_box)
-                    return self.load_route_image(new_map)
+    def update_map_if_zoomed(self, relayout_data, fig=go.Figure(), style=dict()):
+        def f(new_box):
+            new_map = maps.transient_map(new_box)
+            return self.load_route_image(new_map)
+        return with_zoomed_box(relayout_data, fig, style, self.uiroutemap, self.initial_route_image, f)
 
-        return fig, style
+    def update_act_map_if_zoomed(self, relayout_data, fig=go.Figure(), style=dict()):
+        print(f'beeeefore: {self.uiactmap}')
+        print(f'beeeefore: {self.routes}')
 
-    def set_layout(self):
-        self.app.layout = html.Div(children=[
-            html.H1(children='Routes'),
-
-            html.Div(children='Interactive running statistics'),
-            *generate_route_dropdown(self.routes,
-                                     multiple=False),
-            html.Div(id='graph-output', children=[
-                dcc.Graph(id='speed-graph', style={'visibility': 'hidden'})
-            ]),
-            html.Div(id='map-output', children=[
-                dcc.Graph(id='route-map-figure', figure=go.Figure(),
-                          style={'visibility': 'hidden'})
-            ]),
-        ])
+        def f(new_box):
+            new_map = maps.transient_map(new_box)
+            self.routes = db.routes_in_box(self.routes, model.merc_box_to_latlong(new_map.mercator_box))
+            return self.load_activity_image(new_map)
+        fig, style = with_zoomed_box(relayout_data, fig, style, self.uiactmap, self.initial_activity_image, f)
+        return fig, style, self.activity_records()
 
     def map_figure(self):
-        fig = map_route(self.route_data, self.map, self.layout)
-        height= self.map.image.height
-        width = self.map.image.width
-        ratio = width / height
-        width_percent = 80
-        height_percent = width_percent / ratio
-        style = {'width': f'{width_percent}vw', 'height': f'{height_percent}vw'}
-        return fig, style
+        if (m := self.uiroutemap) is not None:
+            fig = map_route(m)
+            style = m.image_style()
+            return fig, style
+        return go.Figure(), dict()
 
     def timestring_to_index(self, time_string: str) -> int:
         ref = self.df['timestamp'].min()
@@ -148,6 +119,80 @@ class Model:
         except ValueError:
             timestamp = datetime.strptime(time_string, '%Y-%m-%d %H:%M:%S.%f')
         return int((timestamp.astimezone(ref.tz) - ref).seconds)
+
+    def map_activity_figure(self):
+        if (m := self.uiactmap) is not None:
+            fig = map_for_activities(m)
+            style = m.image_style()
+            return fig, style
+        return go.Figure(), dict()
+
+    def make_activity_figure(self):
+        fig, style = self.initial_activity_image()
+        return html.Div(id='act-map-output', children=[
+            dcc.Graph(id='map-figure', figure=fig, style=style)
+        ])
+
+    def make_activity_table(self):
+        cols = [
+            dict(id='id', name='id'),
+            dict(id='title', name='title'),
+            dict(id='distance', name='distance',
+                 type='numeric', format=Format(precision=1, scheme=Scheme.fixed)),
+            dict(id='avg_pace', name='avg_pace'),
+            dict(id='avg_heartrate', name='avg_heartrate',
+                 type='numeric', format=Format(precision=0, scheme=Scheme.fixed)),
+            dict(id='created_at', name='created_at')
+        ]
+        records = self.activity_records()
+        component = dash_table.DataTable(
+            id='table',
+            data=records,
+            columns=cols,
+            row_selectable='single')
+        return component
+
+    def activity_records(self):
+        df = pd.DataFrame([r.properties() for r in self.routes])
+        print([r.properties() for r in self.routes])
+        return df.sort_values(by='created_at', ascending=False).to_dict('records')
+
+
+def with_zoomed_box(relayout_data, fig, style, uimap, initial_func, func):
+    if relayout_data:
+        if 'xaxis.autorange' in relayout_data:
+            print('autorange')
+            return initial_func()
+        elif 'autosize' in relayout_data:
+            print('autosize')
+            return fig, style
+        elif 'dragmode' in relayout_data:
+            return initial_func()
+        else:
+            print(relayout_data)
+            min_x = relayout_data['xaxis.range[0]']
+            max_x = relayout_data['xaxis.range[1]']
+            min_y = relayout_data['yaxis.range[0]']
+            max_y = relayout_data['yaxis.range[1]']
+
+            if (m := uimap) is not None:
+                im = m.inner_map.image
+                old_box = model.merc_box_to_latlong(m.inner_map.mercator_box)
+                # Compute ratio of current image to fetch as new (higher res) image
+                start_x = min_x / im.width
+                end_x = max_x / im.width
+                start_y = min_y / im.height
+                end_y = max_y / im.height
+                x_diff = old_box.east - old_box.west
+                y_diff = old_box.north - old_box.south
+                new_box = model.BoundingBox(
+                    north=old_box.south + end_y * y_diff,
+                    east=old_box.west + end_x * x_diff,
+                    south=old_box.south + start_y * y_diff,
+                    west=old_box.west + start_x * x_diff
+                )
+                return func(new_box)
+    return fig, style
 
 
 def generate_route_dropdown(routes: List[db.Route],
@@ -167,20 +212,11 @@ def generate_route_dropdown(routes: List[db.Route],
         )
     ]
 
-def map_route(route_data_in_view: RouteData, map: model.Map, layout):
+
+def map_route(uimap):
     map_hovertext = 'Pace: %{customdata[0]}<br>'
     map_hovertext += 'Distance: %{customdata[1]:.1f}'
-    scat = go.Scatter(x=route_data_in_view.xs, y=route_data_in_view.ys,
-                      mode='lines', name='Route', showlegend=True,
-                      customdata=route_data_in_view.labels,
-                      hovertemplate=map_hovertext)
-
-    fix = go.Scatter(
-        x=[0, map.image.width], y=[0, map.image.height],
-        mode='markers', marker_opacity=0, showlegend=False)
-    fig = go.Figure(data=[scat, fix], layout=layout)
-    return fig
-
+    return uimap.fig(map_hovertext)
 
 
 def graph_speed_lines(df: pd.DataFrame):
@@ -188,11 +224,11 @@ def graph_speed_lines(df: pd.DataFrame):
     pace_hovertext = 'Pace: %{customdata[1]} per km<br>'
     pace_hovertext += 'Distance: %{customdata[0]:.1f} km'
     pace = df['speed'].apply(model.moment_pace)
-    pace_as_float = pace.apply(lambda t: t.seconds/60)
+    pace_as_float = pace.apply(lambda t: t.seconds / 60)
     speed_lines = go.Scatter(
         x=df['timestamp'], y=pace_as_float,
         mode='lines', name='Pace [min/km]', showlegend=True,
-        customdata=[(t['distance'],model.f(p)) for (_, t), p in zip(df.iterrows(), pace)],
+        customdata=[(t['distance'], model.pace_to_str(p)) for (_, t), p in zip(df.iterrows(), pace)],
         hovertemplate=pace_hovertext,
         yaxis='y'
     )
@@ -229,6 +265,7 @@ def graph_heartrate_lines(df: pd.DataFrame):
         mirror=False,
         showline=True,
         side='left',
+
         tickfont={'color': '#e91e63'},
         tickmode='auto',
         ticks='',
@@ -252,7 +289,7 @@ def graph_pace_markers(df: pd.DataFrame, sections: List[parser.SectionPaceInfo]
     pace_markers = go.Scatter(
         x=[df.loc[pace_info.end_index, 'timestamp']
            for pace_info in sections],
-        y=[model.moment_pace(df.loc[pace_info.end_index, 'speed']).seconds/60
+        y=[model.moment_pace(df.loc[pace_info.end_index, 'speed']).seconds / 60
            for pace_info in sections],
         mode='markers', name='Past Section Pace',
         showlegend=True,
@@ -276,8 +313,8 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
         type='date')
 
     speed_lines, speed_ydict = graph_speed_lines(df)
-    sections = parser.section_pace_infos(df, kilometer_distance_steps=1,
-                                  include_total=False)
+    sections = parser.section_pace_infos(
+        df, kilometer_distance_steps=1, include_total=False)
     pace_markers = graph_pace_markers(df, sections)
     fig.add_trace(speed_lines)
     fig.add_trace(pace_markers)
@@ -300,58 +337,79 @@ def generate_speed_graph(df: pd.DataFrame) -> List[Component]:
     return [graph]
 
 
-def map_layout(map) -> go.Layout:
-    layout = go.Layout(
-        uirevision=None,  # f'{map.image.width}x{map.image.height}',  # Only reset zoom etc on map change
-        title='Geodata',
-        autosize=False,
-        xaxis=dict(range=[0, map.image.width]),
-        yaxis=dict(range=[0, map.image.height]),
-        images=[go.layout.Image(
-            source=map.image,
-            xref='x',
-            yref='y',
-            x=0,
-            y=map.image.height,
-            sizex=map.image.width,
-            sizey=map.image.height,
-            sizing='stretch',
-            opacity=1,
-            layer='below')])
-    return layout
+def map_for_activities(uimap):
+    map_hovertext = '%{customdata}<br>'
+    return uimap.fig(map_hovertext, mode='markers')
 
 
 def run():
-   model: Model = Model()
-   @model.app.callback(
-       [Output('graph-output', 'children'),
-       Output('route-map-figure', 'figure', allow_duplicate=True),
-       Output('route-map-figure', 'style', allow_duplicate=True)],
-       Input('route-dropdown', 'value'),
-       prevent_initial_call=True
-   )
-   def _(route_id: str):
-       return model.update_output_div(route_id)
+    model: Model = Model()
+    model.app.layout = html.Div(children=[
+        html.H1(children='Routes'),
+        html.Div(children='Interactive running statistics'),
+        model.make_activity_figure(),
+        model.make_activity_table(),
+        *generate_route_dropdown(model.routes,
+                                 multiple=False),
+        html.Div(id='graph-output', children=[
+            dcc.Graph(id='speed-graph', style={'visibility': 'hidden'})
+        ]),
+        html.Div(id='route-map-output', children=[
+            dcc.Graph(id='route-map-figure', figure=go.Figure(),
+                      style={'visibility': 'hidden'})
+        ]),
+    ])
 
-   @model.app.callback(
-       [Output('route-map-figure', 'figure', allow_duplicate=True),
-        Output('route-map-figure', 'style', allow_duplicate=True)],
-       Input('route-map-figure', 'relayoutData'),
-       State('route-map-figure', 'figure'),
-       State('route-map-figure', 'style'),
-       prevent_initial_call=True)
-   def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
-       return model.update_map_if_zoomed(relayout_data, fig, style)
+    @model.app.callback(
+        [Output('map-figure', 'figure', allow_duplicate=True),
+         Output('map-figure', 'style', allow_duplicate=True),
+         Output('table', 'data', allow_duplicate=True)],
+        Input('map-figure', 'relayoutData'),
+        State('map-figure', 'figure'),
+        State('map-figure', 'style'),
+        prevent_initial_call=True)
+    def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
+        return model.update_act_map_if_zoomed(relayout_data, fig, style)
 
-   @model.app.callback(
-       [Output('route-map-figure', 'figure', allow_duplicate=True),
-        Output('route-map-figure', 'style', allow_duplicate=True)],
-       Input('speed-graph', 'relayoutData'),
-       State('route-map-figure', 'figure'),
-       State('route-map-figure', 'style'),
-       prevent_initial_call=True)
-   def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
-       return model.render_part_of_route(relayout_data, fig, style)
+    @model.app.callback(
+        [Output('graph-output', 'children', allow_duplicate=True),
+         Output('route-map-figure', 'figure', allow_duplicate=True),
+         Output('route-map-figure', 'style', allow_duplicate=True)],
+        Input('table', 'selected_row_ids'),
+        prevent_initial_call=True)
+    def _(selected_row_ids):
+        if selected_row_ids and (route_id := selected_row_ids[0]) is not None:
+            print(f'route id {route_id}')
+            return model.update_output_div(route_id)
 
-   model.app.run_server(debug=True)
+    @model.app.callback(
+        [Output('graph-output', 'children', allow_duplicate=True),
+         Output('route-map-figure', 'figure', allow_duplicate=True),
+         Output('route-map-figure', 'style', allow_duplicate=True)],
+        Input('route-dropdown', 'value'),
+        prevent_initial_call=True
+    )
+    def _(route_id: str):
+        return model.update_output_div(route_id)
 
+    @model.app.callback(
+        [Output('route-map-figure', 'figure', allow_duplicate=True),
+         Output('route-map-figure', 'style', allow_duplicate=True)],
+        Input('route-map-figure', 'relayoutData'),
+        State('route-map-figure', 'figure'),
+        State('route-map-figure', 'style'),
+        prevent_initial_call=True)
+    def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
+        return model.update_map_if_zoomed(relayout_data, fig, style)
+
+    @model.app.callback(
+        [Output('route-map-figure', 'figure', allow_duplicate=True),
+         Output('route-map-figure', 'style', allow_duplicate=True)],
+        Input('speed-graph', 'relayoutData'),
+        State('route-map-figure', 'figure'),
+        State('route-map-figure', 'style'),
+        prevent_initial_call=True)
+    def _(relayout_data=dict(), fig=go.Figure(), style=dict()):
+        return model.render_part_of_route(relayout_data, fig, style)
+
+    model.app.run_server(debug=True)

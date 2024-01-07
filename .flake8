@@ -3,3 +3,4 @@ exclude = .git,__pycache__,venv
 multiline-quotes = """
 docstring-quotes = """
 ignore = F405
+max-line-length = 120

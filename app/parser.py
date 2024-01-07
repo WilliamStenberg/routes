@@ -77,7 +77,7 @@ def parse_file(file_name: str) -> pd.DataFrame:
         for frame in fit:
             if isinstance(frame, fd.FitDefinitionMessage):
                 if frame.name == 'record':
-                    fit.processor.columns = [ # type: ignore
+                    fit.processor.columns = [  # type: ignore
                         field_def.name for field_def in frame.all_field_defs
                     ]
             elif isinstance(frame, fd.FitDataMessage):
@@ -102,7 +102,7 @@ class SectionPaceInfo:
         self.end_index = end_index
 
     def formatted_pace(self) -> str:
-        return model.f(self.duration)
+        return model.pace_to_str(self.duration)
 
 
 def section_pace_infos(df, kilometer_distance_steps: float = 1,
@@ -140,4 +140,3 @@ def section_pace_infos(df, kilometer_distance_steps: float = 1,
         objects += section_pace_infos(df, np.iinfo(np.int64).max,
                                       include_total=False)
     return objects
-
