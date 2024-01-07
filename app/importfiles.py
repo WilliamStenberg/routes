@@ -22,10 +22,8 @@ def make_route(sess, file_name: str, df: pd.DataFrame) -> db.Route:
     title = file_name.replace(utils.DATAPATH, '').rstrip('.fit')
     route_map, _ = db.ensure_persistent_map(sess, model.Timeseries(df).bounding_box())
     sess.add(route_map)
-    last_row = df.iloc[df['position_lat'].last_valid_index()]
-    avg_pace = model.pace_to_str(model.calculate_pace(last_row['distance'], last_row['timestamp']))
+    avg_pace = model.pace_to_str(model.calculate_pace(df['distance'].max(), df['timestamp'].max() - df['timestamp'].min()))
     avg_heartrate = None
-    print(f'Is heart rate in {df.columns}???\n?\n?\n?')
     if 'heart_rate' in df.columns and (rs := df['heart_rate'].dropna()).size > 0:
         avg_heartrate = rs.mean()
     route = db.Route(title=title,
