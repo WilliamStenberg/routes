@@ -128,7 +128,7 @@ def moment_pace(delta_dist: float) -> timedelta:
         return timedelta(seconds=0)
     return timedelta(seconds=1000/delta_dist)
 
-def f(t: timedelta) -> str:
+def pace_to_str(t: timedelta) -> str:
     if t.seconds < 60:
         return f'{t.seconds:02}s'
     elif t.seconds % 60 == 0:

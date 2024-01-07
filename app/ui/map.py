@@ -35,15 +35,25 @@ class Map:
         self.labels: List[str] = labels
         self.layout = map_layout(map)
 
-def image_style(uimap: Map):
-    image = uimap.inner_map.image
-    height= image.height
-    width = image.width
-    ratio = width / height
-    width_percent = 50
-    height_percent = int(width_percent / ratio)
-    style = {'width': f'{width_percent}vw', 'height': f'{height_percent}vw'}
-    return style
+    def fig(self, hovertext: str, mode='lines'):
+        scat = go.Scatter(x=self.xs, y=self.ys,
+                          mode=mode, showlegend=False,
+                          customdata=self.labels,
+                          hovertemplate=hovertext)
 
+        fix = go.Scatter(
+            x=[0, self.inner_map.image.width], y=[0, self.inner_map.image.height],
+            mode='markers', marker_opacity=0, showlegend=False)
+        fig = go.Figure(data=[scat, fix], layout=self.layout)
+        return fig
 
+    def image_style(self):
+        image = self.inner_map.image
+        height= image.height
+        width = image.width
+        ratio = width / height
+        width_percent = 50
+        height_percent = int(width_percent / ratio)
+        style = {'width': f'{width_percent}vw', 'height': f'{height_percent}vw'}
+        return style
 

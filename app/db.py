@@ -4,17 +4,8 @@ import datetime
 import os
 from PIL import Image
 
-from sqlalchemy import DateTime
-from sqlalchemy import ForeignKey
-from sqlalchemy import create_engine
-from sqlalchemy import select
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import joinedload
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
-from sqlalchemy.orm import relationship
-from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
+from sqlalchemy import DateTime, ForeignKey, create_engine, select, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session
 
 import model as model
 import maps as maps
@@ -115,6 +106,8 @@ class Route(Base):
     title: Mapped[str]
     file_name: Mapped[str]
     distance: Mapped[float]
+    avg_pace: Mapped[str]
+    avg_heartrate: Mapped[Optional[float]]
     start_lat: Mapped[float]
     start_long: Mapped[float]
 
@@ -125,7 +118,7 @@ class Route(Base):
     map: Mapped["Map"] = relationship(back_populates="routes")
 
     def properties(self):
-        return {k: self.__dict__[k] for k in ['id', 'title', 'distance', 'created_at']}
+        return {k: self.__dict__[k] for k in ['id', 'title', 'distance', 'avg_pace', 'avg_heartrate', 'created_at']}
 
 def routes(sess) -> List[Route]:
     stmt = select(Route).order_by(Route.created_at.desc())

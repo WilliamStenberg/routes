@@ -15,16 +15,23 @@ def make_route(sess, file_name: str, df: pd.DataFrame) -> db.Route:
     Constructs the and returns it.
     """
     distance = df['distance'].iloc[len(df) - 1]
-    first_non_nan = df['position_lat'].first_valid_index()
-    first_row = df.iloc[first_non_nan]
+    first_row = df.iloc[df['position_lat'].first_valid_index()]
     location = [first_row['position_lat'], first_row['position_long']]
     datetime = first_row['timestamp']
     title = file_name.replace(utils.DATAPATH, '').rstrip('.fit')
     route_map, _ = db.ensure_persistent_map(sess, model.Timeseries(df).bounding_box())
     sess.add(route_map)
+    last_row = df.iloc[df['position_lat'].last_valid_index()]
+    avg_pace = model.pace_to_str(model.calculate_pace(last_row['distance'], last_row['timestamp']))
+    avg_heartrate = None
+    print(f'Is heart rate in {df.columns}???\n?\n?\n?')
+    if 'heart_rate' in df.columns and (rs := df['heart_rate'].dropna()).size > 0:
+        avg_heartrate = rs.mean()
     route = db.Route(title=title,
                   file_name=file_name,
                   distance=distance,
+                  avg_pace=avg_pace,
+                  avg_heartrate=avg_heartrate,
                   start_lat=location[0],
                   start_long=location[1],
                   created_at=datetime,
@@ -37,6 +44,7 @@ def refresh_db() -> List[db.Route]:
     return sync(clear=True)
 
 def clear_maps():
+    db.setup()
     with db.sess() as sess:
         sess.execute(delete(db.Map))
         sess.execute(delete(db.MercatorBoundingBox))
@@ -46,6 +54,7 @@ def clear_maps():
             os.remove(file_name)
 
 def sync(clear: bool = False) -> List[db.Route]:
+    db.setup()
     with db.sess() as sess:
         if clear:
             sess.execute(delete(db.Route))

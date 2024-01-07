@@ -102,7 +102,7 @@ class SectionPaceInfo:
         self.end_index = end_index
 
     def formatted_pace(self) -> str:
-        return model.f(self.duration)
+        return model.pace_to_str(self.duration)
 
 
 def section_pace_infos(df, kilometer_distance_steps: float = 1,
